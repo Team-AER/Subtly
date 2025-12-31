@@ -700,7 +700,7 @@ async function main() {
       log('No sample media files found in sample/ directory');
       log('Add .mp4, .mkv, .wav, .mp3 or other media files to sample/ to test transcription');
       console.log('\n\x1b[33m⚠ Test completed with no files to process\x1b[0m\n');
-      return;
+      process.exit(0);
     }
 
     log(`Found ${sampleFiles.length} sample file(s)`);
@@ -744,6 +744,7 @@ async function main() {
     }
 
     console.log('\n\x1b[32m✓ All tests passed!\x1b[0m\n');
+    process.exit(0);
 
   } catch (err) {
     error(err.message);
