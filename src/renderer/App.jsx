@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { listDevices, pingRuntime, runSmokeTest, transcribe } from '@/api/runtime';
 import { useRuntimeStore } from '@/state/store';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
+import { ProgressModal } from '@/components/ui/progress-modal';
 import ModelManager from '@/components/ModelManager';
 import { z } from 'zod';
 
@@ -20,8 +21,13 @@ export default function App() {
   const setInputPath = useRuntimeStore((state) => state.setInputPath);
   const setOutputDir = useRuntimeStore((state) => state.setOutputDir);
   const updateSettings = useRuntimeStore((state) => state.updateSettings);
+  const progressModal = useRuntimeStore((state) => state.progressModal);
+  const showProgressModal = useRuntimeStore((state) => state.showProgressModal);
+  const updateProgressModal = useRuntimeStore((state) => state.updateProgressModal);
+  const hideProgressModal = useRuntimeStore((state) => state.hideProgressModal);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [modelPaths, setModelPaths] = useState({ whisper: null, vad: null });
+  const [transcriptionCancelled, setTranscriptionCancelled] = useState(false);
 
   const pingQuery = useQuery({
     queryKey: ['runtime', 'ping'],
@@ -118,6 +124,54 @@ export default function App() {
     const handler = (message) => {
       if (message?.event === 'log') {
         addLog(message.payload);
+        
+        // Parse log messages for progress updates
+        const logStr = String(message.payload);
+        
+        // Detect file processing start
+        if (logStr.startsWith('Processing ')) {
+          const filePath = logStr.replace('Processing ', '');
+          const fileName = filePath.split('/').pop() || filePath;
+          updateProgressModal({
+            statusMessage: `Processing: ${fileName}`,
+            progress: 10,
+          });
+        }
+        
+        // Detect ffmpeg conversion (early phase)
+        if (logStr.includes('ffmpeg') || logStr.includes('Converting')) {
+          updateProgressModal({
+            statusMessage: 'Converting audio format...',
+            progress: 20,
+          });
+        }
+        
+        // Detect whisper processing (main phase)
+        if (logStr.includes('whisper') || logStr.includes('Transcribing')) {
+          updateProgressModal({
+            statusMessage: 'Transcribing with Whisper...',
+            progress: 40,
+          });
+        }
+        
+        // Skip detection
+        if (logStr.startsWith('SKIP')) {
+          updateProgressModal({
+            statusMessage: 'Skipping (already up-to-date)',
+            progress: 90,
+          });
+        }
+      }
+      
+      // Handle progress events from runtime (if emitted)
+      if (message?.event === 'progress') {
+        const { progress, current, total, phase } = message.payload || {};
+        updateProgressModal({
+          progress: progress ?? undefined,
+          currentItem: current,
+          totalItems: total,
+          statusMessage: phase,
+        });
       }
     };
 
@@ -125,7 +179,7 @@ export default function App() {
     return () => {
       window.aerRuntime.onEvent(() => {});
     };
-  }, [addLog]);
+  }, [addLog, updateProgressModal]);
 
   const payloadSchema = z.object({
     input_path: z.string().min(1),
@@ -152,6 +206,15 @@ export default function App() {
     dry_run: z.boolean()
   });
 
+  // Track transcription progress from runtime events
+  const transcriptionProgressRef = React.useRef({ currentFile: 0, totalFiles: 0, currentPhase: '' });
+
+  const handleCancelTranscription = useCallback(() => {
+    setTranscriptionCancelled(true);
+    hideProgressModal();
+    addLog('Transcription cancelled by user.');
+  }, [hideProgressModal, addLog]);
+
   const handleTranscribe = async () => {
     if (!modelPaths.whisper) {
       addLog('Error: No Whisper model selected. Please download and select a model.');
@@ -164,6 +227,18 @@ export default function App() {
 
     try {
       setIsTranscribing(true);
+      setTranscriptionCancelled(false);
+      
+      // Show progress modal
+      showProgressModal({
+        type: 'transcription',
+        title: 'Generating Subtitles',
+        description: inputPath,
+        progress: 0,
+        statusMessage: 'Initializing...',
+        canCancel: true,
+      });
+
       const payload = payloadSchema.parse({
         input_path: inputPath,
         output_dir: outputDir || undefined,
@@ -190,12 +265,19 @@ export default function App() {
       });
 
       addLog('Starting subtitle generation...');
+      updateProgressModal({ statusMessage: 'Processing audio...', progress: 5 });
+      
       const result = await transcribe(payload);
+      
+      hideProgressModal();
       addLog(`Completed ${result.jobs} job(s).`);
       result.outputs.forEach((out) => addLog(`Wrote: ${out}`));
     } catch (err) {
+      hideProgressModal();
       const message = err instanceof Error ? err.message : String(err);
-      addLog(`Transcription failed: ${message}`);
+      if (!transcriptionCancelled) {
+        addLog(`Transcription failed: ${message}`);
+      }
     } finally {
       setIsTranscribing(false);
     }
@@ -225,6 +307,21 @@ export default function App() {
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-base-950 font-body text-slate-100">
+      {/* Progress Modal - blocks UI */}
+      <ProgressModal
+        isOpen={progressModal.isOpen}
+        title={progressModal.title}
+        description={progressModal.description}
+        progress={progressModal.progress}
+        currentBytes={progressModal.currentBytes}
+        totalBytes={progressModal.totalBytes}
+        currentItem={progressModal.currentItem}
+        totalItems={progressModal.totalItems}
+        statusMessage={progressModal.statusMessage}
+        canCancel={progressModal.canCancel}
+        onCancel={progressModal.type === 'transcription' ? handleCancelTranscription : undefined}
+      />
+      
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(30,41,59,0.85)_0%,rgba(11,15,26,0.9)_45%)]" />
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_70%_10%,rgba(56,189,248,0.2)_0%,transparent_55%),radial-gradient(circle_at_10%_80%,rgba(249,115,22,0.2)_0%,transparent_55%)]" />
       <div className="pointer-events-none absolute inset-0 opacity-20 [background-image:linear-gradient(rgba(148,163,184,0.2)_1px,transparent_1px),linear-gradient(90deg,rgba(148,163,184,0.2)_1px,transparent_1px)] [background-size:42px_42px]" />

@@ -28,6 +28,20 @@ export const useRuntimeStore = create((set) => ({
     language: 'auto',
     dryRun: false
   },
+  // Progress modal state
+  progressModal: {
+    isOpen: false,
+    type: null, // 'download' | 'transcription'
+    title: '',
+    description: '',
+    progress: 0,
+    currentBytes: undefined,
+    totalBytes: undefined,
+    currentItem: undefined,
+    totalItems: undefined,
+    statusMessage: '',
+    canCancel: true,
+  },
   setSelectedDevice: (device) => set({ selectedDevice: device }),
   setSelectedModel: (modelId) => set({ selectedModel: modelId }),
   setInputPath: (inputPath) => set({ inputPath }),
@@ -37,5 +51,32 @@ export const useRuntimeStore = create((set) => ({
   addLog: (entry) =>
     set((state) => ({
       logs: [...state.logs, { id: crypto.randomUUID(), message: entry }]
-    }))
+    })),
+  // Progress modal actions
+  showProgressModal: (config) =>
+    set((state) => ({
+      progressModal: {
+        ...state.progressModal,
+        isOpen: true,
+        ...config,
+      }
+    })),
+  updateProgressModal: (patch) =>
+    set((state) => ({
+      progressModal: {
+        ...state.progressModal,
+        ...patch,
+      }
+    })),
+  hideProgressModal: () =>
+    set((state) => ({
+      progressModal: {
+        ...state.progressModal,
+        isOpen: false,
+        progress: 0,
+        currentBytes: undefined,
+        totalBytes: undefined,
+        statusMessage: '',
+      }
+    })),
 }));

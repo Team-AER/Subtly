@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
+import { ProgressModal } from '@/components/ui/progress-modal';
 import { useRuntimeStore } from '@/state/store';
 
 function formatBytes(bytes) {
@@ -45,7 +46,7 @@ function ModelCard({ model, isInstalled, isDownloading, downloadProgress, onDown
 
       {isDownloading && (
         <div className="mt-3 space-y-1">
-          <Progress value={progressPercent} max={100} />
+          <Progress value={progressPercent} max={100} showStripes size="lg" />
           <p className="text-xs text-slate-400">
             {formatBytes(downloadedBytes)} / {model.size} ({progressPercent}%)
           </p>
@@ -110,6 +111,8 @@ export default function ModelManager() {
 
   const [downloadProgress, setDownloadProgress] = useState({});
   const [downloading, setDownloading] = useState(new Set());
+  const [activeDownload, setActiveDownload] = useState(null); // Track active modal download
+  const [downloadCancelled, setDownloadCancelled] = useState(false);
 
   const availableQuery = useQuery({
     queryKey: ['models', 'available'],
@@ -150,10 +153,29 @@ export default function ModelManager() {
     });
   }, []);
 
+  const handleCancelDownload = useCallback(() => {
+    if (activeDownload && window.aerModels) {
+      window.aerModels.cancelDownload(activeDownload);
+      setDownloadCancelled(true);
+      setActiveDownload(null);
+      addLog(`Download cancelled: ${activeDownload}`);
+    }
+  }, [activeDownload, addLog]);
+
   const handleDownload = useCallback(async (modelId) => {
     if (!window.aerModels) return;
 
+    // Find model info for display
+    const allModels = [...(availableQuery.data?.whisperModels || [])];
+    if (availableQuery.data?.vadModel) {
+      allModels.push(availableQuery.data.vadModel);
+    }
+    const modelInfo = allModels.find(m => m.id === modelId);
+    const modelName = modelInfo?.name || modelId;
+
     setDownloading((prev) => new Set(prev).add(modelId));
+    setActiveDownload(modelId);
+    setDownloadCancelled(false);
     addLog(`Starting download: ${modelId}`);
 
     try {
@@ -166,10 +188,14 @@ export default function ModelManager() {
           setSelectedModel(modelId);
         }
       } else {
-        addLog(`Download failed: ${result.error}`);
+        if (!downloadCancelled) {
+          addLog(`Download failed: ${result.error}`);
+        }
       }
     } catch (err) {
-      addLog(`Download error: ${err.message}`);
+      if (!downloadCancelled) {
+        addLog(`Download error: ${err.message}`);
+      }
     } finally {
       setDownloading((prev) => {
         const next = new Set(prev);
@@ -181,8 +207,9 @@ export default function ModelManager() {
         delete next[modelId];
         return next;
       });
+      setActiveDownload(null);
     }
-  }, [addLog, queryClient, selectedModel, setSelectedModel]);
+  }, [addLog, queryClient, selectedModel, setSelectedModel, availableQuery.data, downloadCancelled]);
 
   const handleDelete = useCallback(async (modelId) => {
     if (!window.aerModels) return;
@@ -207,25 +234,44 @@ export default function ModelManager() {
   const vadModel = availableQuery.data?.vadModel;
   const vadInstalled = installedIds.has('silero-vad');
 
+  // Get active download model info for modal
+  const activeDownloadInfo = activeDownload ? 
+    [...whisperModels, vadModel].find(m => m?.id === activeDownload) : null;
+  const activeDownloadProgress = activeDownload ? downloadProgress[activeDownload] : null;
+
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Whisper Models</CardTitle>
-        <p className="text-xs text-slate-400">
-          Select a model for transcription. Larger models are more accurate but slower.
-        </p>
-      </CardHeader>
-      <CardContent>
-        <div className="space-y-6">
-          {/* VAD Model Section */}
-          {vadModel && (
-            <div className="rounded-xl border border-slate-600/30 bg-slate-900/40 p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="text-sm font-medium text-slate-200">{vadModel.name}</h4>
-                  <p className="text-xs text-slate-400">{vadModel.description}</p>
-                  <p className="mt-1 text-xs text-slate-500">{vadModel.size}</p>
-                </div>
+    <>
+      {/* Download Progress Modal */}
+      <ProgressModal
+        isOpen={!!activeDownload}
+        title="Downloading Model"
+        description={activeDownloadInfo?.name || activeDownload}
+        progress={activeDownloadProgress?.progress || 0}
+        currentBytes={activeDownloadProgress?.downloadedBytes}
+        totalBytes={activeDownloadProgress?.totalBytes}
+        statusMessage={`Downloading ${activeDownloadInfo?.size || 'model'}...`}
+        canCancel={true}
+        onCancel={handleCancelDownload}
+      />
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Whisper Models</CardTitle>
+          <p className="text-xs text-slate-400">
+            Select a model for transcription. Larger models are more accurate but slower.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-6">
+            {/* VAD Model Section */}
+            {vadModel && (
+              <div className="rounded-xl border border-slate-600/30 bg-slate-900/40 p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-sm font-medium text-slate-200">{vadModel.name}</h4>
+                    <p className="text-xs text-slate-400">{vadModel.description}</p>
+                    <p className="mt-1 text-xs text-slate-500">{vadModel.size}</p>
+                  </div>
                 {vadInstalled ? (
                   <span className="flex items-center gap-1 text-xs text-emerald-400">
                     <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
@@ -235,7 +281,7 @@ export default function ModelManager() {
                   </span>
                 ) : downloading.has('silero-vad') ? (
                   <div className="w-32">
-                    <Progress value={downloadProgress['silero-vad']?.progress || 0} max={100} />
+                    <Progress value={downloadProgress['silero-vad']?.progress || 0} max={100} showStripes />
                     <p className="mt-1 text-xs text-slate-400">
                       {downloadProgress['silero-vad']?.progress || 0}%
                     </p>
@@ -278,5 +324,6 @@ export default function ModelManager() {
         </div>
       </CardContent>
     </Card>
+    </>
   );
 }
