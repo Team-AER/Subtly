@@ -1,0 +1,35 @@
+{
+  "platforms": {
+    "darwin-arm64": [
+      {
+        "name": "whisper-cli",
+        "url": "https://example.com/darwin-arm64/whisper-cli",
+        "sha256": "REPLACE_ME",
+        "dest": "resources/runtime-assets/bin/whisper-cli",
+        "mode": "755"
+      },
+      {
+        "name": "ffmpeg",
+        "url": "https://example.com/darwin-arm64/ffmpeg",
+        "sha256": "REPLACE_ME",
+        "dest": "resources/runtime-assets/bin/ffmpeg",
+        "mode": "755"
+      },
+      {
+        "name": "ggml-large-v3",
+        "url": "https://example.com/models/ggml-large-v3.bin",
+        "sha256": "REPLACE_ME",
+        "dest": "resources/runtime-assets/models/ggml-large-v3.bin"
+      },
+      {
+        "name": "ggml-silero-v6.2.0",
+        "url": "https://example.com/models/ggml-silero-v6.2.0.bin",
+        "sha256": "REPLACE_ME",
+        "dest": "resources/runtime-assets/models/ggml-silero-v6.2.0.bin"
+      }
+    ],
+    "darwin-x64": [],
+    "linux-x64": [],
+    "win32-x64": []
+  }
+}

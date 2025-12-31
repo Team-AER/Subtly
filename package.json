@@ -1,0 +1,88 @@
+{
+  "name": "aer-subtitle-forge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Desktop app for GPU-accelerated Whisper subtitle generation.",
+  "homepage": "https://aer.app",
+  "author": "Prakhar Shukla <prafiles@gmail.com>",
+  "main": "dist/main.js",
+  "type": "commonjs",
+  "scripts": {
+    "dev": "node scripts/dev.js",
+    "build": "node scripts/build.js",
+    "pack": "electron-builder",
+    "pack:all": "yarn build:runtime && yarn build && electron-builder -mwl",
+    "assets:download": "node scripts/download-assets.js",
+    "build:runtime": "cargo build --release --manifest-path runtime/gpu-runtime/Cargo.toml",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "dependencies": {
+    "@radix-ui/react-slot": "^1.0.2",
+    "@sentry/electron": "^4.10.0",
+    "@tanstack/react-query": "^5.45.0",
+    "clsx": "^2.1.1",
+    "electron-updater": "^6.1.9",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwind-merge": "^2.3.0",
+    "zod": "^3.23.8",
+    "zustand": "^4.5.2"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.1",
+    "autoprefixer": "^10.4.19",
+    "electron": "30.0.0",
+    "electron-builder": "^24.13.3",
+    "postcss": "^8.4.38",
+    "tailwindcss": "^3.4.4",
+    "vite": "^5.3.3"
+  },
+  "build": {
+    "appId": "com.aer.subtitleforge",
+    "productName": "AER Subtitle Forge",
+    "files": [
+      "dist/main.js",
+      "dist/preload.js",
+      "dist/shared/**",
+      "dist/renderer/**",
+      "node_modules/**",
+      "package.json"
+    ],
+    "asar": true,
+    "directories": {
+      "output": "release",
+      "buildResources": "resources"
+    },
+    "extraResources": [
+      {
+        "from": "runtime/gpu-runtime/target/release",
+        "to": "runtime",
+        "filter": [
+          "gpu-runtime",
+          "gpu-runtime.exe"
+        ]
+      },
+      {
+        "from": "resources/runtime-assets",
+        "to": "runtime/assets"
+      }
+    ],
+    "mac": {
+      "target": [
+        "dmg"
+      ]
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "linux": {
+      "maintainer": "Prakhar Shukla <prafiles@gmail.com>",
+      "target": [
+        "AppImage",
+        "deb"
+      ]
+    }
+  }
+}
