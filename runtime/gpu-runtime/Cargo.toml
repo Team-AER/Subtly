@@ -12,3 +12,6 @@ pollster = "0.3"
 num_cpus = "1.16"
 tempfile = "3.10"
 walkdir = "2.5"
+
+[lints.rust]
+unexpected_cfgs = { level = "allow", check-cfg = ['cfg(coverage)'] }

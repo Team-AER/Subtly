@@ -1,33 +1,41 @@
 const path = require('path');
 const fs = require('fs');
-const https = require('https');
-const http = require('http');
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
-const { spawn } = require('child_process');
-const { RPC_METHODS } = require('./shared/rpc');
-const { WHISPER_MODELS, VAD_MODEL } = require('./shared/models');
-const { autoUpdater } = require('electron-updater');
-const Sentry = require('@sentry/electron/main');
+let https = require('https');
+let http = require('http');
+let { app, BrowserWindow, ipcMain, dialog } = require('electron');
+let { spawn } = require('child_process');
+const sharedRoot = fs.existsSync(path.join(__dirname, 'shared'))
+  ? path.join(__dirname, 'shared')
+  : path.join(__dirname, '..', 'shared');
+const { RPC_METHODS } = require(path.join(sharedRoot, 'rpc'));
+const { WHISPER_MODELS, VAD_MODEL } = require(path.join(sharedRoot, 'models'));
 
 let mainWindow = null;
 let runtimeProcess = null;
 let rpcCounter = 1;
 const pending = new Map();
 const activeDownloads = new Map();
+const shouldAutoStart = process.env.AER_DISABLE_AUTO_START !== '1';
 
-if (process.platform === 'win32') {
-  app.setAppUserModelId('com.aer.subtitleforge');
+function maybeSetAppUserModelId(platform = process.platform, appRef = app) {
+  if (platform === 'win32') {
+    appRef.setAppUserModelId('com.aer.subtitleforge');
+  }
 }
 
-if (process.env.SENTRY_DSN) {
-  Sentry.init({
-    dsn: process.env.SENTRY_DSN,
+function maybeInitSentry(env = process.env, sentry = null) {
+  if (!env.SENTRY_DSN) {
+    return;
+  }
+  const sentryClient = sentry || require('@sentry/electron/main');
+  sentryClient.init({
+    dsn: env.SENTRY_DSN,
     tracesSampleRate: 0.2
   });
 }
 
-function getRuntimeBinaryName() {
-  if (process.platform === 'win32') {
+function getRuntimeBinaryName(platform = process.platform) {
+  if (platform === 'win32') {
     return 'gpu-runtime.exe';
   }
   return 'gpu-runtime';
@@ -286,7 +294,10 @@ function createWindow() {
   }
 }
 
-app.whenReady().then(() => {
+function initApp() {
+  maybeSetAppUserModelId();
+  maybeInitSentry();
+  return app.whenReady().then(() => {
   try {
     startRuntime();
   } catch (err) {
@@ -363,8 +374,14 @@ app.whenReady().then(() => {
 
   createWindow();
 
-  if (app.isPackaged) {
-    autoUpdater.checkForUpdatesAndNotify();
+  const shouldCheckUpdates = app.isPackaged && process.env.NODE_ENV !== 'test' && process.env.VITEST !== 'true';
+  if (shouldCheckUpdates) {
+    try {
+      const { autoUpdater } = require('electron-updater');
+      autoUpdater.checkForUpdatesAndNotify();
+    } catch (err) {
+      console.warn('Auto update unavailable:', err.message);
+    }
   }
 
   app.on('activate', () => {
@@ -372,13 +389,69 @@ app.whenReady().then(() => {
       createWindow();
     }
   });
-});
+  });
 
-app.on('window-all-closed', () => {
-  if (runtimeProcess) {
-    runtimeProcess.kill();
+  app.on('window-all-closed', () => {
+    if (runtimeProcess) {
+      runtimeProcess.kill();
+    }
+    if (process.platform !== 'darwin') {
+      app.quit();
+    }
+  });
+}
+
+if (shouldAutoStart) {
+  initApp();
+}
+
+function setMainWindow(windowRef) {
+  mainWindow = windowRef;
+}
+
+function setRuntimeProcess(processRef) {
+  runtimeProcess = processRef;
+}
+
+function setElectronModule(electronModule) {
+  ({ app, BrowserWindow, ipcMain, dialog } = electronModule);
+}
+
+function setSpawnFunction(spawnFn) {
+  spawn = spawnFn;
+}
+
+function setHttpClients(clients = {}) {
+  if (clients.https) {
+    https = clients.https;
   }
-  if (process.platform !== 'darwin') {
-    app.quit();
+  if (clients.http) {
+    http = clients.http;
   }
-});
+}
+
+module.exports = {
+  maybeSetAppUserModelId,
+  maybeInitSentry,
+  getRuntimeBinaryName,
+  resolveRuntimePath,
+  getModelsDirectory,
+  ensureModelsDirectory,
+  getInstalledModels,
+  downloadModel,
+  cancelDownload,
+  deleteModel,
+  startRuntime,
+  sendRpc,
+  createWindow,
+  initApp,
+  setMainWindow,
+  setRuntimeProcess,
+  setElectronModule,
+  setSpawnFunction,
+  setHttpClients,
+  __test: {
+    pending,
+    activeDownloads
+  }
+};

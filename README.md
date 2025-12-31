@@ -143,3 +143,29 @@ wgpu uses Metal on macOS. This preserves the "GPU acceleration everywhere" goal,
 
 - Main process Sentry uses `SENTRY_DSN`.
 - Renderer Sentry uses `VITE_SENTRY_DSN`.
+
+## Testing & coverage
+
+JS/renderer/main/preload coverage is enforced at 100% with Vitest + React Testing Library (jsdom):
+
+```
+yarn test
+```
+
+Rust runtime coverage is enforced at 100% via `cargo llvm-cov` (install once with `cargo install cargo-llvm-cov`):
+
+```
+yarn test:rust
+```
+
+Run both in one go:
+
+```
+yarn test:all
+```
+
+The existing end-to-end pipeline check is still available:
+
+```
+yarn test:e2e
+```

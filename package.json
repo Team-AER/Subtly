@@ -16,7 +16,11 @@
     "assets:sync": "node scripts/sync-assets.js",
     "aio:setup": "yarn assets:download && yarn assets:sync",
     "build:runtime": "cargo build --release --manifest-path runtime/gpu-runtime/Cargo.toml",
-    "test": "node scripts/test-e2e.js",
+    "test": "vitest run --coverage",
+    "test:all": "yarn test && yarn test:rust && yarn test:e2e",
+    "test:e2e": "node scripts/test-e2e.js",
+    "test:rust": "LLVM_COV=$(xcrun --find llvm-cov) LLVM_PROFDATA=$(xcrun --find llvm-profdata) cargo llvm-cov --manifest-path runtime/gpu-runtime/Cargo.toml --fail-under-lines 100 --fail-under-functions 100 --fail-under-regions 99.7 --ignore-filename-regex 'rustc'",
+    "test:watch": "vitest",
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
@@ -33,12 +37,18 @@
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.1",
+    "@testing-library/dom": "^10.4.0",
+    "@testing-library/react": "^16.0.0",
+    "@testing-library/user-event": "^14.5.2",
+    "@vitest/coverage-v8": "^2.0.5",
     "autoprefixer": "^10.4.19",
     "electron": "30.0.0",
     "electron-builder": "^24.13.3",
+    "jsdom": "^24.1.0",
     "postcss": "^8.4.38",
     "tailwindcss": "^3.4.4",
-    "vite": "^5.3.3"
+    "vite": "^5.3.3",
+    "vitest": "^2.0.5"
   },
   "build": {
     "appId": "com.aer.subtitleforge",

@@ -9,6 +9,32 @@ import { ProgressModal } from '@/components/ui/progress-modal';
 import ModelManager from '@/components/ModelManager';
 import { z } from 'zod';
 
+export function selectBestDevice(devices) {
+  if (!devices || devices.length === 0) return null;
+  
+  // Priority: Vulkan/Metal discrete GPU > integrated GPU > CPU
+  const gpuBackends = ['Vulkan', 'Metal', 'vulkan', 'metal', 'wgpu'];
+  const gpuTypes = ['DiscreteGpu', 'IntegratedGpu'];
+  
+  // Find best GPU device
+  for (const gpuType of gpuTypes) {
+    const gpu = devices.find(
+      (d) => gpuBackends.some((b) => d.backend?.toLowerCase().includes(b.toLowerCase())) && 
+             d.device_type === gpuType
+    );
+    if (gpu) return gpu;
+  }
+  
+  // Fallback to any GPU-capable device
+  const anyGpu = devices.find((d) => 
+    gpuBackends.some((b) => d.backend?.toLowerCase().includes(b.toLowerCase()))
+  );
+  if (anyGpu) return anyGpu;
+  
+  // Final fallback to CPU or first available
+  return devices.find((d) => d.device_type === 'Cpu') || devices[0];
+}
+
 export default function App() {
   const addLog = useRuntimeStore((state) => state.addLog);
   const logs = useRuntimeStore((state) => state.logs);
@@ -28,6 +54,7 @@ export default function App() {
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [modelPaths, setModelPaths] = useState({ whisper: null, vad: null });
   const [transcriptionCancelled, setTranscriptionCancelled] = useState(false);
+  const transcriptionCancelledRef = React.useRef(false);
 
   const pingQuery = useQuery({
     queryKey: ['runtime', 'ping'],
@@ -47,32 +74,6 @@ export default function App() {
     }
   }, [pingQuery.isError, pingQuery.error, addLog]);
 
-  // Helper to select the best device: prefer Vulkan/Metal GPU, fallback to CPU
-  const selectBestDevice = (devices) => {
-    if (!devices || devices.length === 0) return null;
-    
-    // Priority: Vulkan/Metal discrete GPU > integrated GPU > CPU
-    const gpuBackends = ['Vulkan', 'Metal', 'vulkan', 'metal', 'wgpu'];
-    const gpuTypes = ['DiscreteGpu', 'IntegratedGpu'];
-    
-    // Find best GPU device
-    for (const gpuType of gpuTypes) {
-      const gpu = devices.find(
-        (d) => gpuBackends.some((b) => d.backend?.toLowerCase().includes(b.toLowerCase())) && 
-               d.device_type === gpuType
-      );
-      if (gpu) return gpu;
-    }
-    
-    // Fallback to any GPU-capable device
-    const anyGpu = devices.find((d) => 
-      gpuBackends.some((b) => d.backend?.toLowerCase().includes(b.toLowerCase()))
-    );
-    if (anyGpu) return anyGpu;
-    
-    // Final fallback to CPU or first available
-    return devices.find((d) => d.device_type === 'Cpu') || devices[0];
-  };
 
   useEffect(() => {
     if (devicesQuery.isSuccess) {
@@ -210,23 +211,38 @@ export default function App() {
   const transcriptionProgressRef = React.useRef({ currentFile: 0, totalFiles: 0, currentPhase: '' });
 
   const handleCancelTranscription = useCallback(() => {
+    transcriptionCancelledRef.current = true;
     setTranscriptionCancelled(true);
     hideProgressModal();
     addLog('Transcription cancelled by user.');
   }, [hideProgressModal, addLog]);
 
   const handleTranscribe = async () => {
-    if (!modelPaths.whisper) {
+    let whisperPath = modelPaths.whisper;
+    let vadPath = modelPaths.vad;
+
+    if (window.aerModels && (whisperPath == null || vadPath == null)) {
+      const resolvedWhisper = selectedModel
+        ? await window.aerModels.getModelPath(selectedModel)
+        : null;
+      const resolvedVad = await window.aerModels.getModelPath('silero-vad');
+      whisperPath = resolvedWhisper;
+      vadPath = resolvedVad;
+      setModelPaths({ whisper: resolvedWhisper, vad: resolvedVad });
+    }
+
+    if (!whisperPath) {
       addLog('Error: No Whisper model selected. Please download and select a model.');
       return;
     }
-    if (!modelPaths.vad) {
+    if (!vadPath) {
       addLog('Error: VAD model not installed. Please download the Silero VAD model.');
       return;
     }
 
     try {
       setIsTranscribing(true);
+      transcriptionCancelledRef.current = false;
       setTranscriptionCancelled(false);
       
       // Show progress modal
@@ -242,8 +258,8 @@ export default function App() {
       const payload = payloadSchema.parse({
         input_path: inputPath,
         output_dir: outputDir || undefined,
-        model_path: modelPaths.whisper,
-        vad_model_path: modelPaths.vad,
+        model_path: whisperPath,
+        vad_model_path: vadPath,
         whisper_path: settings.whisperPath || undefined,
         ffmpeg_path: settings.ffmpegPath || undefined,
         vk_icd_filenames: settings.vkIcdFilenames || undefined,
@@ -275,7 +291,7 @@ export default function App() {
     } catch (err) {
       hideProgressModal();
       const message = err instanceof Error ? err.message : String(err);
-      if (!transcriptionCancelled) {
+      if (!transcriptionCancelledRef.current) {
         addLog(`Transcription failed: ${message}`);
       }
     } finally {
@@ -381,7 +397,7 @@ export default function App() {
                 <div className="flex flex-wrap gap-3">
                   <Button 
                     onClick={handleTranscribe} 
-                    disabled={isTranscribing || !inputPath || !modelPaths.whisper || !modelPaths.vad}
+                    disabled={isTranscribing || !inputPath}
                   >
                     {isTranscribing ? 'Generating…' : 'Generate subtitles'}
                   </Button>

@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { cn } from '@/lib/utils';
 
-function formatBytes(bytes) {
+export function formatBytes(bytes) {
   if (bytes === 0) return '0 B';
   const k = 1024;
   const sizes = ['B', 'KB', 'MB', 'GB'];
@@ -9,7 +9,7 @@ function formatBytes(bytes) {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
 }
 
-function formatTime(seconds) {
+export function formatTime(seconds) {
   if (!seconds || seconds === Infinity || isNaN(seconds)) return '--:--';
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
