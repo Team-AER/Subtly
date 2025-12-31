@@ -282,9 +282,7 @@ export default function App() {
                   />
                 </label>
                 <div className="flex flex-wrap gap-3">
-                  <Button onClick={handleSmokeTest}>Run Vulkan smoke test</Button>
                   <Button 
-                    variant="secondary" 
                     onClick={handleTranscribe} 
                     disabled={isTranscribing || !inputPath || !modelPaths.whisper || !modelPaths.vad}
                   >
@@ -303,27 +301,30 @@ export default function App() {
 
         <ModelManager />
 
-        <Collapsible>
-          <Card>
-            <CardHeader className="cursor-pointer">
-              <CollapsibleTrigger className="flex w-full items-center justify-between">
-                <CardTitle>Advanced settings</CardTitle>
-                <svg
-                  className="h-5 w-5 text-slate-400 transition-transform duration-200 [[data-state=open]_&]:rotate-180"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
-              </CollapsibleTrigger>
-            </CardHeader>
+        <Card>
+          <Collapsible>
+            <CollapsibleTrigger className="w-full">
+              <CardHeader className="cursor-pointer">
+                <div className="flex w-full items-center justify-between">
+                  <CardTitle>Advanced settings</CardTitle>
+                  <svg
+                    className="h-5 w-5 text-slate-400 transition-transform duration-200 [[data-state=open]_&]:rotate-180"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
+              </CardHeader>
+            </CollapsibleTrigger>
             <CollapsibleContent>
               <CardContent>
                 {/* Runtime Telemetry Section */}
                 <div className="mb-6">
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="text-sm font-semibold text-slate-200">Runtime telemetry</h3>
+                    <Button variant="secondary" size="sm" onClick={handleSmokeTest}>Run Vulkan smoke test</Button>
                   </div>
                   <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-4">
                     <div className="rounded-xl border border-slate-500/30 bg-slate-900/60 p-3">
@@ -564,8 +565,8 @@ export default function App() {
             </div>
               </CardContent>
             </CollapsibleContent>
-          </Card>
-        </Collapsible>
+          </Collapsible>
+        </Card>
       </main>
     </div>
   );
