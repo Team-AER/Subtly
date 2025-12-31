@@ -17,8 +17,8 @@ const WHISPER_MODELS = [
     id: 'large-v3-turbo',
     name: 'Large V3 Turbo',
     description: 'Full precision turbo model. Faster than Large V3 with similar quality.',
-    size: '1.6 GB',
-    sizeBytes: 1624182016,
+    size: '1.5 GB',
+    sizeBytes: 1624555275,
     url: 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin',
     filename: 'ggml-large-v3-turbo.bin',
     recommended: false

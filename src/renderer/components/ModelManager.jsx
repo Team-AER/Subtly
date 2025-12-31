@@ -18,16 +18,28 @@ function ModelCard({ model, isInstalled, isDownloading, downloadProgress, onDown
   const progressPercent = downloadProgress?.progress || 0;
   const downloadedBytes = downloadProgress?.downloadedBytes || 0;
 
+  const handleCardClick = () => {
+    if (isInstalled) {
+      onSelect(model.id);
+    }
+  };
+
   return (
-    <button
-      type="button"
-      onClick={() => isInstalled && onSelect(model.id)}
-      disabled={!isInstalled}
+    <div
+      role={isInstalled ? 'button' : undefined}
+      tabIndex={isInstalled ? 0 : undefined}
+      onClick={handleCardClick}
+      onKeyDown={(e) => {
+        if (isInstalled && (e.key === 'Enter' || e.key === ' ')) {
+          e.preventDefault();
+          onSelect(model.id);
+        }
+      }}
       className={`relative rounded-xl border p-4 text-left transition ${
         isSelected
           ? 'border-accent-400/80 bg-slate-950/80'
           : isInstalled
-          ? 'border-slate-500/30 bg-slate-900/60 hover:border-slate-300/60'
+          ? 'border-slate-500/30 bg-slate-900/60 hover:border-slate-300/60 cursor-pointer'
           : 'border-slate-600/20 bg-slate-900/40'
       }`}
     >
@@ -99,7 +111,7 @@ function ModelCard({ model, isInstalled, isDownloading, downloadProgress, onDown
           </Button>
         )}
       </div>
-    </button>
+    </div>
   );
 }
 

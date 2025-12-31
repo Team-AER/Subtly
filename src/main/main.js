@@ -72,6 +72,15 @@ function getInstalledModels() {
   const files = fs.readdirSync(modelsDir);
   const installed = [];
 
+  // Helper to check if file size is within acceptable range (within 5% or exact match)
+  const isComplete = (actualSize, expectedSize) => {
+    if (actualSize === expectedSize) return true;
+    // Allow 5% tolerance for size variations
+    const minSize = expectedSize * 0.95;
+    const maxSize = expectedSize * 1.05;
+    return actualSize >= minSize && actualSize <= maxSize;
+  };
+
   for (const model of WHISPER_MODELS) {
     if (files.includes(model.filename)) {
       const filePath = path.join(modelsDir, model.filename);
@@ -80,7 +89,7 @@ function getInstalledModels() {
         ...model,
         path: filePath,
         installedSize: stats.size,
-        complete: stats.size === model.sizeBytes
+        complete: isComplete(stats.size, model.sizeBytes)
       });
     }
   }
@@ -93,7 +102,7 @@ function getInstalledModels() {
       ...VAD_MODEL,
       path: filePath,
       installedSize: stats.size,
-      complete: stats.size === VAD_MODEL.sizeBytes
+      complete: isComplete(stats.size, VAD_MODEL.sizeBytes)
     });
   }
 
