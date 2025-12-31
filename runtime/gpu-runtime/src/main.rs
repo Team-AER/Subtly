@@ -95,14 +95,36 @@ fn write_event(stdout: &mut impl Write, event: &str, payload: serde_json::Value)
 
 fn handle_request(request: &RpcRequest, stdout: &mut impl Write) -> Result<serde_json::Value> {
     match request.method.as_str() {
-        "ping" => Ok(json!({
-            "message": "Runtime ready",
-            "backend": "wgpu"
-        })),
+        "ping" => ping_with_gpu_info(),
         "list_devices" => list_devices(),
         "smoke_test" => smoke_test(),
         "transcribe" => transcribe(&request.params, stdout),
         _ => Err(anyhow!("Unknown method: {}", request.method)),
+    }
+}
+
+fn ping_with_gpu_info() -> Result<serde_json::Value> {
+    let instance = wgpu::Instance::default();
+    let adapters = instance.enumerate_adapters(wgpu::Backends::all());
+    
+    if let Some(adapter) = adapters.into_iter().next() {
+        let info = adapter.get_info();
+        let backend_name = format!("{:?}", info.backend);
+        Ok(json!({
+            "message": "Runtime ready",
+            "gpu_enabled": true,
+            "gpu_name": info.name,
+            "gpu_backend": backend_name,
+            "gpu_type": format!("{:?}", info.device_type)
+        }))
+    } else {
+        Ok(json!({
+            "message": "Runtime ready (CPU fallback)",
+            "gpu_enabled": false,
+            "gpu_name": null,
+            "gpu_backend": "CPU",
+            "gpu_type": "Cpu"
+        }))
     }
 }
 

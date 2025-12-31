@@ -643,12 +643,41 @@ async function runTranscriptionTest(client, inputPath, deps) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// GPU Detection
+// ─────────────────────────────────────────────────────────────────────────────
+
+function detectGpuBackend() {
+  if (IS_MAC) {
+    return {
+      backend: 'Metal',
+      description: 'Apple Metal GPU acceleration',
+      icon: '🍎'
+    };
+  } else if (IS_LINUX || IS_WINDOWS) {
+    // Vulkan support would need additional setup
+    return {
+      backend: 'Vulkan',
+      description: 'Vulkan GPU acceleration (if available)',
+      icon: '🔺'
+    };
+  }
+  return {
+    backend: 'CPU',
+    description: 'CPU fallback (no GPU acceleration)',
+    icon: '💻'
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Main
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function main() {
   console.log('\n\x1b[1m━━━ AER Subtitle Forge E2E Test ━━━\x1b[0m\n');
-  console.log(`Platform: ${PLATFORM}-${ARCH}\n`);
+  
+  const gpuInfo = detectGpuBackend();
+  console.log(`Platform: ${PLATFORM}-${ARCH}`);
+  console.log(`GPU Backend: ${gpuInfo.icon} ${gpuInfo.backend} - ${gpuInfo.description}\n`);
 
   const startTime = Date.now();
   let client = null;
@@ -680,9 +709,13 @@ async function main() {
     client = new RuntimeClient(RUNTIME_PATH);
     await client.start();
 
-    // Ping to verify runtime is ready
+    // Ping to verify runtime is ready and check GPU status
     const pingResult = await client.ping();
-    success(`Runtime ready: ${pingResult.message}`);
+    if (pingResult.gpu_enabled) {
+      success(`Runtime ready with GPU: ${pingResult.gpu_name} (${pingResult.gpu_backend})`);
+    } else {
+      log(`\x1b[33m⚠ Runtime running on CPU (no GPU detected)\x1b[0m`);
+    }
 
     // Step 5: Run transcription on each file
     const results = [];
