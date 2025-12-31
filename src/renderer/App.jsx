@@ -4,6 +4,7 @@ import { listDevices, pingRuntime, runSmokeTest, transcribe } from '@/api/runtim
 import { useRuntimeStore } from '@/state/store';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@/components/ui/collapsible';
 import ModelManager from '@/components/ModelManager';
 import { z } from 'zod';
 
@@ -341,11 +342,23 @@ export default function App() {
 
         <ModelManager />
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Whisper pipeline settings</CardTitle>
-          </CardHeader>
-          <CardContent>
+        <Collapsible>
+          <Card>
+            <CardHeader className="cursor-pointer">
+              <CollapsibleTrigger className="flex w-full items-center justify-between">
+                <CardTitle>Advanced settings</CardTitle>
+                <svg
+                  className="h-5 w-5 text-slate-400 transition-transform duration-200 [[data-state=open]_&]:rotate-180"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </CollapsibleTrigger>
+            </CardHeader>
+            <CollapsibleContent>
+              <CardContent>
             <div className="grid gap-4 md:grid-cols-2">
               <label className="grid gap-2 text-sm text-slate-300">
                 Whisper CLI path
@@ -518,8 +531,10 @@ export default function App() {
                 Dry run
               </label>
             </div>
-          </CardContent>
-        </Card>
+              </CardContent>
+            </CollapsibleContent>
+          </Card>
+        </Collapsible>
       </main>
     </div>
   );
