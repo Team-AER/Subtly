@@ -41,11 +41,42 @@ export default function App() {
     }
   }, [pingQuery.isError, pingQuery.error, addLog]);
 
+  // Helper to select the best device: prefer Vulkan/Metal GPU, fallback to CPU
+  const selectBestDevice = (devices) => {
+    if (!devices || devices.length === 0) return null;
+    
+    // Priority: Vulkan/Metal discrete GPU > integrated GPU > CPU
+    const gpuBackends = ['Vulkan', 'Metal', 'vulkan', 'metal', 'wgpu'];
+    const gpuTypes = ['DiscreteGpu', 'IntegratedGpu'];
+    
+    // Find best GPU device
+    for (const gpuType of gpuTypes) {
+      const gpu = devices.find(
+        (d) => gpuBackends.some((b) => d.backend?.toLowerCase().includes(b.toLowerCase())) && 
+               d.device_type === gpuType
+      );
+      if (gpu) return gpu;
+    }
+    
+    // Fallback to any GPU-capable device
+    const anyGpu = devices.find((d) => 
+      gpuBackends.some((b) => d.backend?.toLowerCase().includes(b.toLowerCase()))
+    );
+    if (anyGpu) return anyGpu;
+    
+    // Final fallback to CPU or first available
+    return devices.find((d) => d.device_type === 'Cpu') || devices[0];
+  };
+
   useEffect(() => {
     if (devicesQuery.isSuccess) {
       addLog(`Detected ${devicesQuery.data.devices.length} device(s).`);
       if (!selectedDevice && devicesQuery.data.devices.length > 0) {
-        setSelectedDevice(devicesQuery.data.devices[0]);
+        const best = selectBestDevice(devicesQuery.data.devices);
+        setSelectedDevice(best);
+        if (best) {
+          addLog(`Auto-selected device: ${best.name} (${best.backend})`);
+        }
       }
     }
     if (devicesQuery.isError) {
@@ -219,42 +250,7 @@ export default function App() {
           </div>
         </header>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>GPU devices</CardTitle>
-            <Button variant="secondary" onClick={() => devicesQuery.refetch()}>
-              Refresh
-            </Button>
-          </CardHeader>
-          <CardContent>
-            <div className="grid gap-4 md:grid-cols-2">
-              {(devicesQuery.data?.devices ?? []).length === 0 && (
-                <div className="rounded-xl border border-slate-500/30 bg-slate-900/60 p-4 text-sm text-slate-300">
-                  No compatible GPU devices detected.
-                </div>
-              )}
-              {devicesQuery.data?.devices.map((device) => (
-                <button
-                  type="button"
-                  key={`${device.name}-${device.device}`}
-                  onClick={() => setSelectedDevice(device)}
-                  className={`rounded-xl border p-4 text-left transition ${
-                    selectedDevice?.name === device.name
-                      ? 'border-accent-400/80 bg-slate-950/80'
-                      : 'border-slate-500/30 bg-slate-900/60 hover:border-slate-300/60'
-                  }`}
-                >
-                  <h3 className="font-semibold">{device.name}</h3>
-                  <p className="text-xs text-slate-400">
-                    {device.backend} · {device.device_type} · driver {device.driver || 'unknown'}
-                  </p>
-                </button>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
+        <div className="grid gap-6 lg:grid-cols-1">
           <Card>
             <CardHeader>
               <CardTitle>Subtitle workspace</CardTitle>
@@ -303,41 +299,6 @@ export default function App() {
               </div>
             </CardContent>
           </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Runtime telemetry</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid gap-4">
-                <div className="grid grid-cols-2 gap-4 text-sm text-slate-300">
-                  <div>
-                    <p className="text-xs text-slate-400">Queue latency</p>
-                    <p className="text-lg font-semibold">--</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-400">VRAM usage</p>
-                    <p className="text-lg font-semibold">--</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-400">Backend</p>
-                    <p className="text-lg font-semibold">{pingQuery.data?.backend ?? '--'}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-400">Selected device</p>
-                    <p className="text-lg font-semibold">{selectedDevice?.name ?? '--'}</p>
-                  </div>
-                </div>
-                <div className="max-h-48 overflow-y-auto rounded-xl border border-dashed border-slate-500/40 bg-slate-950/60 p-3 text-xs text-slate-300">
-                  {logs.length === 0 ? (
-                    <p>No runtime events yet.</p>
-                  ) : (
-                    logs.map((entry) => <p key={entry.id}>{entry.message}</p>)
-                  )}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
         </div>
 
         <ModelManager />
@@ -359,6 +320,76 @@ export default function App() {
             </CardHeader>
             <CollapsibleContent>
               <CardContent>
+                {/* Runtime Telemetry Section */}
+                <div className="mb-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-sm font-semibold text-slate-200">Runtime telemetry</h3>
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-4">
+                    <div className="rounded-xl border border-slate-500/30 bg-slate-900/60 p-3">
+                      <p className="text-xs text-slate-400">Queue latency</p>
+                      <p className="text-lg font-semibold">--</p>
+                    </div>
+                    <div className="rounded-xl border border-slate-500/30 bg-slate-900/60 p-3">
+                      <p className="text-xs text-slate-400">VRAM usage</p>
+                      <p className="text-lg font-semibold">--</p>
+                    </div>
+                    <div className="rounded-xl border border-slate-500/30 bg-slate-900/60 p-3">
+                      <p className="text-xs text-slate-400">Backend</p>
+                      <p className="text-lg font-semibold">{pingQuery.data?.backend ?? '--'}</p>
+                    </div>
+                    <div className="rounded-xl border border-slate-500/30 bg-slate-900/60 p-3">
+                      <p className="text-xs text-slate-400">Selected device</p>
+                      <p className="text-lg font-semibold">{selectedDevice?.name ?? '--'}</p>
+                    </div>
+                  </div>
+                  <div className="max-h-32 overflow-y-auto rounded-xl border border-dashed border-slate-500/40 bg-slate-950/60 p-3 text-xs text-slate-300 mb-4">
+                    {logs.length === 0 ? (
+                      <p>No runtime events yet.</p>
+                    ) : (
+                      logs.map((entry) => <p key={entry.id}>{entry.message}</p>)
+                    )}
+                  </div>
+                </div>
+
+                {/* GPU Devices Section */}
+                <div className="mb-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-sm font-semibold text-slate-200">GPU devices</h3>
+                    <Button variant="secondary" size="sm" onClick={() => devicesQuery.refetch()}>
+                      Refresh
+                    </Button>
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    {(devicesQuery.data?.devices ?? []).length === 0 && (
+                      <div className="rounded-xl border border-slate-500/30 bg-slate-900/60 p-4 text-sm text-slate-300">
+                        No compatible GPU devices detected. Using CPU fallback.
+                      </div>
+                    )}
+                    {devicesQuery.data?.devices.map((device) => (
+                      <button
+                        type="button"
+                        key={`${device.name}-${device.device}`}
+                        onClick={() => setSelectedDevice(device)}
+                        className={`rounded-xl border p-3 text-left transition ${
+                          selectedDevice?.name === device.name
+                            ? 'border-accent-400/80 bg-slate-950/80'
+                            : 'border-slate-500/30 bg-slate-900/60 hover:border-slate-300/60'
+                        }`}
+                      >
+                        <h4 className="font-semibold text-sm">{device.name}</h4>
+                        <p className="text-xs text-slate-400">
+                          {device.backend} · {device.device_type} · driver {device.driver || 'unknown'}
+                        </p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Whisper Pipeline Settings */}
+                <div className="mb-2">
+                  <h3 className="text-sm font-semibold text-slate-200 mb-4">Whisper pipeline settings</h3>
+                </div>
             <div className="grid gap-4 md:grid-cols-2">
               <label className="grid gap-2 text-sm text-slate-300">
                 Whisper CLI path
