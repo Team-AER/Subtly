@@ -607,6 +607,8 @@ fn run_command(
 
     let mut command = Command::new(program);
     command.args(args);
+    command.stdout(std::process::Stdio::null());
+    command.stderr(std::process::Stdio::null());
     if let Some(value) = vk_icd_filenames {
         command.env("VK_ICD_FILENAMES", value);
     }

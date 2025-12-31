@@ -190,8 +190,8 @@ export function ProgressModal({
               <AnimatedProgress value={progress} />
             </div>
 
-            {/* Stats grid */}
-            <div className="mb-4 grid grid-cols-2 gap-3">
+            {/* Stats section */}
+            <div className="mb-4">
               {/* Progress info */}
               <div className="rounded-xl border border-slate-500/20 bg-slate-800/50 p-3">
                 <p className="text-xs text-slate-500 uppercase tracking-wide">Progress</p>
@@ -209,14 +209,6 @@ export function ProgressModal({
                       )}
                     </>
                   )}
-                </p>
-              </div>
-
-              {/* ETA */}
-              <div className="rounded-xl border border-slate-500/20 bg-slate-800/50 p-3">
-                <p className="text-xs text-slate-500 uppercase tracking-wide">Time remaining</p>
-                <p className="text-lg font-semibold text-slate-200">
-                  {formatTime(eta)}
                 </p>
               </div>
             </div>

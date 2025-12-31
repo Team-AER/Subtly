@@ -14,7 +14,7 @@ function formatBytes(bytes) {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
 }
 
-function ModelCard({ model, isInstalled, isDownloading, downloadProgress, onDownload, onDelete, isSelected, onSelect }) {
+function ModelCard({ model, isInstalled, isDownloading, downloadProgress, onDownload, onDelete, onCancel, isSelected, onSelect }) {
   const progressPercent = downloadProgress?.progress || 0;
   const downloadedBytes = downloadProgress?.downloadedBytes || 0;
 
@@ -93,7 +93,7 @@ function ModelCard({ model, isInstalled, isDownloading, downloadProgress, onDown
             className="text-xs"
             onClick={(e) => {
               e.stopPropagation();
-              window.aerModels?.cancelDownload(model.id);
+              onCancel(model.id);
             }}
           >
             Cancel
@@ -165,12 +165,24 @@ export default function ModelManager() {
     });
   }, []);
 
-  const handleCancelDownload = useCallback(() => {
-    if (activeDownload && window.aerModels) {
-      window.aerModels.cancelDownload(activeDownload);
+  const handleCancelDownload = useCallback((modelId) => {
+    const idToCancel = modelId || activeDownload;
+    if (idToCancel && window.aerModels) {
+      window.aerModels.cancelDownload(idToCancel);
       setDownloadCancelled(true);
       setActiveDownload(null);
-      addLog(`Download cancelled: ${activeDownload}`);
+      // Clear the downloading state and progress
+      setDownloading((prev) => {
+        const next = new Set(prev);
+        next.delete(idToCancel);
+        return next;
+      });
+      setDownloadProgress((prev) => {
+        const next = { ...prev };
+        delete next[idToCancel];
+        return next;
+      });
+      addLog(`Download cancelled: ${idToCancel}`);
     }
   }, [activeDownload, addLog]);
 
@@ -292,11 +304,20 @@ export default function ModelManager() {
                     Installed
                   </span>
                 ) : downloading.has('silero-vad') ? (
-                  <div className="w-32">
-                    <Progress value={downloadProgress['silero-vad']?.progress || 0} max={100} showStripes />
-                    <p className="mt-1 text-xs text-slate-400">
-                      {downloadProgress['silero-vad']?.progress || 0}%
-                    </p>
+                  <div className="flex items-center gap-3">
+                    <div className="w-32">
+                      <Progress value={downloadProgress['silero-vad']?.progress || 0} max={100} showStripes />
+                      <p className="mt-1 text-xs text-slate-400">
+                        {downloadProgress['silero-vad']?.progress || 0}%
+                      </p>
+                    </div>
+                    <Button
+                      variant="secondary"
+                      className="text-xs"
+                      onClick={() => handleCancelDownload('silero-vad')}
+                    >
+                      Cancel
+                    </Button>
                   </div>
                 ) : (
                   <Button
@@ -322,6 +343,7 @@ export default function ModelManager() {
                 downloadProgress={downloadProgress[model.id]}
                 onDownload={handleDownload}
                 onDelete={handleDelete}
+                onCancel={handleCancelDownload}
                 isSelected={selectedModel === model.id}
                 onSelect={setSelectedModel}
               />
