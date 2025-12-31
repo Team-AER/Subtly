@@ -2,34 +2,96 @@
   "platforms": {
     "darwin-arm64": [
       {
-        "name": "whisper-cli",
-        "url": "https://example.com/darwin-arm64/whisper-cli",
-        "sha256": "REPLACE_ME",
-        "dest": "resources/runtime-assets/bin/whisper-cli",
-        "mode": "755"
-      },
-      {
         "name": "ffmpeg",
-        "url": "https://example.com/darwin-arm64/ffmpeg",
+        "url": "https://github.com/eugeneware/ffmpeg-static/releases/download/b6.0/ffmpeg-darwin-arm64.gz",
         "sha256": "REPLACE_ME",
-        "dest": "resources/runtime-assets/bin/ffmpeg",
-        "mode": "755"
+        "dest": "resources/runtime-assets/bin/ffmpeg.gz",
+        "mode": "755",
+        "extract": "gunzip"
       },
       {
-        "name": "ggml-large-v3",
-        "url": "https://example.com/models/ggml-large-v3.bin",
+        "name": "ggml-large-v3-turbo",
+        "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin",
         "sha256": "REPLACE_ME",
-        "dest": "resources/runtime-assets/models/ggml-large-v3.bin"
+        "dest": "resources/runtime-assets/models/ggml-large-v3-turbo.bin"
       },
       {
-        "name": "ggml-silero-v6.2.0",
-        "url": "https://example.com/models/ggml-silero-v6.2.0.bin",
+        "name": "ggml-large-v3-turbo-q5_0",
+        "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
         "sha256": "REPLACE_ME",
-        "dest": "resources/runtime-assets/models/ggml-silero-v6.2.0.bin"
+        "dest": "resources/runtime-assets/models/ggml-large-v3-turbo-q5_0.bin"
+      },
+      {
+        "name": "silero-vad-v5",
+        "url": "https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v5.1.2.bin",
+        "sha256": "REPLACE_ME",
+        "dest": "resources/runtime-assets/models/silero_vad.bin"
       }
     ],
-    "darwin-x64": [],
-    "linux-x64": [],
-    "win32-x64": []
+    "darwin-x64": [
+      {
+        "name": "ffmpeg",
+        "url": "https://github.com/eugeneware/ffmpeg-static/releases/download/b6.0/ffmpeg-darwin-x64.gz",
+        "sha256": "REPLACE_ME",
+        "dest": "resources/runtime-assets/bin/ffmpeg.gz",
+        "mode": "755",
+        "extract": "gunzip"
+      },
+      {
+        "name": "ggml-large-v3-turbo-q5_0",
+        "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
+        "sha256": "REPLACE_ME",
+        "dest": "resources/runtime-assets/models/ggml-large-v3-turbo-q5_0.bin"
+      },
+      {
+        "name": "silero-vad-v5",
+        "url": "https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v5.1.2.bin",
+        "sha256": "REPLACE_ME",
+        "dest": "resources/runtime-assets/models/silero_vad.bin"
+      }
+    ],
+    "linux-x64": [
+      {
+        "name": "ffmpeg",
+        "url": "https://github.com/eugeneware/ffmpeg-static/releases/download/b6.0/ffmpeg-linux-x64.gz",
+        "sha256": "REPLACE_ME",
+        "dest": "resources/runtime-assets/bin/ffmpeg.gz",
+        "mode": "755",
+        "extract": "gunzip"
+      },
+      {
+        "name": "ggml-large-v3-turbo-q5_0",
+        "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
+        "sha256": "REPLACE_ME",
+        "dest": "resources/runtime-assets/models/ggml-large-v3-turbo-q5_0.bin"
+      },
+      {
+        "name": "silero-vad-v5",
+        "url": "https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v5.1.2.bin",
+        "sha256": "REPLACE_ME",
+        "dest": "resources/runtime-assets/models/silero_vad.bin"
+      }
+    ],
+    "win32-x64": [
+      {
+        "name": "ffmpeg",
+        "url": "https://github.com/eugeneware/ffmpeg-static/releases/download/b6.0/ffmpeg-win32-x64.gz",
+        "sha256": "REPLACE_ME",
+        "dest": "resources/runtime-assets/bin/ffmpeg.exe.gz",
+        "extract": "gunzip"
+      },
+      {
+        "name": "ggml-large-v3-turbo-q5_0",
+        "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
+        "sha256": "REPLACE_ME",
+        "dest": "resources/runtime-assets/models/ggml-large-v3-turbo-q5_0.bin"
+      },
+      {
+        "name": "silero-vad-v5",
+        "url": "https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v5.1.2.bin",
+        "sha256": "REPLACE_ME",
+        "dest": "resources/runtime-assets/models/silero_vad.bin"
+      }
+    ]
   }
 }

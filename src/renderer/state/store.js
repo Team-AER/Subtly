@@ -3,6 +3,7 @@ import { create } from 'zustand';
 export const useRuntimeStore = create((set) => ({
   logs: [],
   selectedDevice: null,
+  selectedModel: null,
   inputPath: '',
   outputDir: '',
   settings: {
@@ -28,6 +29,7 @@ export const useRuntimeStore = create((set) => ({
     dryRun: false
   },
   setSelectedDevice: (device) => set({ selectedDevice: device }),
+  setSelectedModel: (modelId) => set({ selectedModel: modelId }),
   setInputPath: (inputPath) => set({ inputPath }),
   setOutputDir: (outputDir) => set({ outputDir }),
   updateSettings: (patch) =>

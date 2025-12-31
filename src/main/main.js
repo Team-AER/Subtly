@@ -1,7 +1,11 @@
 const path = require('path');
+const fs = require('fs');
+const https = require('https');
+const http = require('http');
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const { spawn } = require('child_process');
-const { RPC_METHODS } = require('../shared/rpc');
+const { RPC_METHODS } = require('./shared/rpc');
+const { WHISPER_MODELS, VAD_MODEL } = require('./shared/models');
 const { autoUpdater } = require('electron-updater');
 const Sentry = require('@sentry/electron/main');
 
@@ -9,9 +13,10 @@ let mainWindow = null;
 let runtimeProcess = null;
 let rpcCounter = 1;
 const pending = new Map();
+const activeDownloads = new Map();
 
 if (process.platform === 'win32') {
-  app.setAppUserModelId('com.aer.vulkanml');
+  app.setAppUserModelId('com.aer.subtitleforge');
 }
 
 if (process.env.SENTRY_DSN) {
@@ -39,7 +44,157 @@ function resolveRuntimePath() {
     return path.join(process.resourcesPath, 'runtime', binaryName);
   }
 
-  return path.join(__dirname, '..', '..', '..', 'runtime', 'gpu-runtime', 'target', 'debug', binaryName);
+  const appRoot = app.getAppPath();
+  return path.join(appRoot, 'runtime', 'gpu-runtime', 'target', 'debug', binaryName);
+}
+
+function getModelsDirectory() {
+  if (app.isPackaged) {
+    return path.join(app.getPath('userData'), 'models');
+  }
+  return path.join(app.getAppPath(), 'runtime', 'assets', 'models');
+}
+
+function ensureModelsDirectory() {
+  const modelsDir = getModelsDirectory();
+  if (!fs.existsSync(modelsDir)) {
+    fs.mkdirSync(modelsDir, { recursive: true });
+  }
+  return modelsDir;
+}
+
+function getInstalledModels() {
+  const modelsDir = getModelsDirectory();
+  if (!fs.existsSync(modelsDir)) {
+    return [];
+  }
+
+  const files = fs.readdirSync(modelsDir);
+  const installed = [];
+
+  for (const model of WHISPER_MODELS) {
+    if (files.includes(model.filename)) {
+      const filePath = path.join(modelsDir, model.filename);
+      const stats = fs.statSync(filePath);
+      installed.push({
+        ...model,
+        path: filePath,
+        installedSize: stats.size,
+        complete: stats.size === model.sizeBytes
+      });
+    }
+  }
+
+  // Check VAD model
+  if (files.includes(VAD_MODEL.filename)) {
+    const filePath = path.join(modelsDir, VAD_MODEL.filename);
+    const stats = fs.statSync(filePath);
+    installed.push({
+      ...VAD_MODEL,
+      path: filePath,
+      installedSize: stats.size,
+      complete: stats.size === VAD_MODEL.sizeBytes
+    });
+  }
+
+  return installed;
+}
+
+function downloadModel(modelId, onProgress) {
+  const model = modelId === 'silero-vad'
+    ? VAD_MODEL
+    : WHISPER_MODELS.find((m) => m.id === modelId);
+
+  if (!model) {
+    return Promise.reject(new Error(`Unknown model: ${modelId}`));
+  }
+
+  const modelsDir = ensureModelsDirectory();
+  const destPath = path.join(modelsDir, model.filename);
+  const tempPath = `${destPath}.download`;
+
+  return new Promise((resolve, reject) => {
+    const client = model.url.startsWith('https') ? https : http;
+
+    const makeRequest = (url) => {
+      client.get(url, (res) => {
+        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          makeRequest(res.headers.location);
+          return;
+        }
+
+        if (res.statusCode >= 400) {
+          reject(new Error(`Download failed with status ${res.statusCode}`));
+          return;
+        }
+
+        const totalBytes = parseInt(res.headers['content-length'], 10) || model.sizeBytes;
+        let downloadedBytes = 0;
+
+        const file = fs.createWriteStream(tempPath);
+        activeDownloads.set(modelId, { abort: () => res.destroy() });
+
+        res.on('data', (chunk) => {
+          downloadedBytes += chunk.length;
+          const progress = Math.round((downloadedBytes / totalBytes) * 100);
+          onProgress({ modelId, progress, downloadedBytes, totalBytes });
+        });
+
+        res.pipe(file);
+
+        file.on('finish', () => {
+          file.close(() => {
+            fs.renameSync(tempPath, destPath);
+            activeDownloads.delete(modelId);
+            resolve({ modelId, path: destPath });
+          });
+        });
+
+        file.on('error', (err) => {
+          fs.unlinkSync(tempPath);
+          activeDownloads.delete(modelId);
+          reject(err);
+        });
+
+        res.on('error', (err) => {
+          fs.unlinkSync(tempPath);
+          activeDownloads.delete(modelId);
+          reject(err);
+        });
+      }).on('error', reject);
+    };
+
+    makeRequest(model.url);
+  });
+}
+
+function cancelDownload(modelId) {
+  const download = activeDownloads.get(modelId);
+  if (download) {
+    download.abort();
+    activeDownloads.delete(modelId);
+    return true;
+  }
+  return false;
+}
+
+function deleteModel(modelId) {
+  const model = modelId === 'silero-vad'
+    ? VAD_MODEL
+    : WHISPER_MODELS.find((m) => m.id === modelId);
+
+  if (!model) {
+    throw new Error(`Unknown model: ${modelId}`);
+  }
+
+  const modelsDir = getModelsDirectory();
+  const filePath = path.join(modelsDir, model.filename);
+
+  if (fs.existsSync(filePath)) {
+    fs.unlinkSync(filePath);
+    return true;
+  }
+  return false;
 }
 
 function startRuntime() {
@@ -152,6 +307,50 @@ app.whenReady().then(() => {
     });
     return result.canceled ? null : result.filePaths[0];
   });
+
+  // Model management IPC handlers
+  ipcMain.handle('models:list-available', () => ({
+    whisperModels: WHISPER_MODELS,
+    vadModel: VAD_MODEL
+  }));
+
+  ipcMain.handle('models:list-installed', () => getInstalledModels());
+
+  ipcMain.handle('models:get-path', (_, modelId) => {
+    const model = modelId === 'silero-vad'
+      ? VAD_MODEL
+      : WHISPER_MODELS.find((m) => m.id === modelId);
+    if (!model) return null;
+    const modelsDir = getModelsDirectory();
+    const filePath = path.join(modelsDir, model.filename);
+    return fs.existsSync(filePath) ? filePath : null;
+  });
+
+  ipcMain.handle('models:download', async (event, modelId) => {
+    try {
+      const result = await downloadModel(modelId, (progress) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('models:download-progress', progress);
+        }
+      });
+      return { success: true, ...result };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('models:cancel-download', (_, modelId) => cancelDownload(modelId));
+
+  ipcMain.handle('models:delete', (_, modelId) => {
+    try {
+      deleteModel(modelId);
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('models:get-directory', () => getModelsDirectory());
 
   createWindow();
 

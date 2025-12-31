@@ -4,6 +4,7 @@ const path = require('path');
 const crypto = require('crypto');
 const http = require('http');
 const https = require('https');
+const zlib = require('zlib');
 
 const root = path.resolve(__dirname, '..');
 const manifestPath = process.env.ASSET_MANIFEST
@@ -63,7 +64,19 @@ async function downloadAsset(asset) {
     throw new Error(`Checksum mismatch for ${asset.name}: expected ${asset.sha256}, got ${actualHash}`);
   }
 
-  if (asset.mode && process.platform !== 'win32') {
+  // Handle gzip extraction
+  if (asset.extract === 'gunzip' && destPath.endsWith('.gz')) {
+    const extractedPath = destPath.slice(0, -3); // Remove .gz
+    console.log(`Extracting ${asset.name} -> ${extractedPath}`);
+    const compressed = await fsp.readFile(destPath);
+    const decompressed = zlib.gunzipSync(compressed);
+    await fsp.writeFile(extractedPath, decompressed);
+    await fsp.rm(destPath, { force: true });
+    
+    if (asset.mode && process.platform !== 'win32') {
+      await fsp.chmod(extractedPath, parseInt(asset.mode, 8));
+    }
+  } else if (asset.mode && process.platform !== 'win32') {
     await fsp.chmod(destPath, parseInt(asset.mode, 8));
   }
 

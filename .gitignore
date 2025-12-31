@@ -15,3 +15,5 @@ node_modules
 /resources/runtime-assets/models/*
 /runtime/assets/bin/*
 /runtime/assets/models/*
+
+sample/

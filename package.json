@@ -13,7 +13,10 @@
     "pack": "electron-builder",
     "pack:all": "yarn build:runtime && yarn build && electron-builder -mwl",
     "assets:download": "node scripts/download-assets.js",
+    "assets:sync": "node scripts/sync-assets.js",
+    "aio:setup": "yarn assets:download && yarn assets:sync",
     "build:runtime": "cargo build --release --manifest-path runtime/gpu-runtime/Cargo.toml",
+    "test": "node scripts/test-e2e.js",
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {

@@ -4,6 +4,7 @@ import { listDevices, pingRuntime, runSmokeTest, transcribe } from '@/api/runtim
 import { useRuntimeStore } from '@/state/store';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import ModelManager from '@/components/ModelManager';
 import { z } from 'zod';
 
 export default function App() {
@@ -11,6 +12,7 @@ export default function App() {
   const logs = useRuntimeStore((state) => state.logs);
   const selectedDevice = useRuntimeStore((state) => state.selectedDevice);
   const setSelectedDevice = useRuntimeStore((state) => state.setSelectedDevice);
+  const selectedModel = useRuntimeStore((state) => state.selectedModel);
   const inputPath = useRuntimeStore((state) => state.inputPath);
   const outputDir = useRuntimeStore((state) => state.outputDir);
   const settings = useRuntimeStore((state) => state.settings);
@@ -18,6 +20,7 @@ export default function App() {
   const setOutputDir = useRuntimeStore((state) => state.setOutputDir);
   const updateSettings = useRuntimeStore((state) => state.updateSettings);
   const [isTranscribing, setIsTranscribing] = useState(false);
+  const [modelPaths, setModelPaths] = useState({ whisper: null, vad: null });
 
   const pingQuery = useQuery({
     queryKey: ['runtime', 'ping'],
@@ -49,6 +52,21 @@ export default function App() {
       addLog(`Device query failed: ${message}`);
     }
   }, [devicesQuery.isSuccess, devicesQuery.isError, devicesQuery.data, devicesQuery.error, addLog, selectedDevice, setSelectedDevice]);
+
+  // Resolve model paths when selected model changes
+  useEffect(() => {
+    async function resolveModelPaths() {
+      if (!window.aerModels) return;
+      
+      const whisperPath = selectedModel 
+        ? await window.aerModels.getModelPath(selectedModel)
+        : null;
+      const vadPath = await window.aerModels.getModelPath('silero-vad');
+      
+      setModelPaths({ whisper: whisperPath, vad: vadPath });
+    }
+    resolveModelPaths();
+  }, [selectedModel]);
 
   const handleSmokeTest = async () => {
     addLog('Running Vulkan smoke test...');
@@ -103,13 +121,22 @@ export default function App() {
   });
 
   const handleTranscribe = async () => {
+    if (!modelPaths.whisper) {
+      addLog('Error: No Whisper model selected. Please download and select a model.');
+      return;
+    }
+    if (!modelPaths.vad) {
+      addLog('Error: VAD model not installed. Please download the Silero VAD model.');
+      return;
+    }
+
     try {
       setIsTranscribing(true);
       const payload = payloadSchema.parse({
         input_path: inputPath,
         output_dir: outputDir || undefined,
-        model_path: settings.modelPath || undefined,
-        vad_model_path: settings.vadModelPath || undefined,
+        model_path: modelPaths.whisper,
+        vad_model_path: modelPaths.vad,
         whisper_path: settings.whisperPath || undefined,
         ffmpeg_path: settings.ffmpegPath || undefined,
         vk_icd_filenames: settings.vkIcdFilenames || undefined,
@@ -257,20 +284,20 @@ export default function App() {
                     onChange={(event) => setOutputDir(event.target.value)}
                   />
                 </label>
-              <label className="grid gap-2 text-sm text-slate-300">
-                Whisper model
-                <input
-                  className="rounded-xl border border-slate-500/40 bg-slate-950/70 px-3 py-2 text-sm"
-                  value={settings.modelPath}
-                  placeholder="Auto (bundled in app)"
-                  onChange={(event) => updateSettings({ modelPath: event.target.value })}
-                />
-              </label>
                 <div className="flex flex-wrap gap-3">
                   <Button onClick={handleSmokeTest}>Run Vulkan smoke test</Button>
-                  <Button variant="secondary" onClick={handleTranscribe} disabled={isTranscribing || !inputPath}>
+                  <Button 
+                    variant="secondary" 
+                    onClick={handleTranscribe} 
+                    disabled={isTranscribing || !inputPath || !modelPaths.whisper || !modelPaths.vad}
+                  >
                     {isTranscribing ? 'Generating…' : 'Generate subtitles'}
                   </Button>
+                  {(!modelPaths.whisper || !modelPaths.vad) && inputPath && (
+                    <span className="text-xs text-amber-400 self-center">
+                      ⚠ Download models below to enable transcription
+                    </span>
+                  )}
                 </div>
               </div>
             </CardContent>
@@ -312,21 +339,14 @@ export default function App() {
           </Card>
         </div>
 
+        <ModelManager />
+
         <Card>
           <CardHeader>
             <CardTitle>Whisper pipeline settings</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="grid gap-4 md:grid-cols-2">
-              <label className="grid gap-2 text-sm text-slate-300">
-                VAD model
-                <input
-                  className="rounded-xl border border-slate-500/40 bg-slate-950/70 px-3 py-2 text-sm"
-                  value={settings.vadModelPath}
-                  placeholder="Auto (bundled in app)"
-                  onChange={(event) => updateSettings({ vadModelPath: event.target.value })}
-                />
-              </label>
               <label className="grid gap-2 text-sm text-slate-300">
                 Whisper CLI path
                 <input
