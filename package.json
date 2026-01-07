@@ -1,7 +1,7 @@
 {
   "name": "subtly",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
   "description": "Desktop app for GPU-accelerated Whisper subtitle generation.",
   "homepage": "https://subtly.aer.app",
   "author": "Prakhar Shukla <prafiles@gmail.com>",
