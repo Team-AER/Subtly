@@ -1,110 +1,115 @@
-# Subtly
-
-This document provides a technical overview of the Subtly application, intended for developers and contributors.
+# GEMINI.md - Context & Instructions
 
 ## Project Overview
 
-Subtly is a desktop application for generating subtitles from audio and video files. It uses a hybrid architecture combining a web-based user interface with a high-performance, native backend for GPU-accelerated transcription.
+**Subtly** is an Electron-based desktop application designed to generate subtitles for audio and video files using the Whisper model. It leverages a split architecture to ensure stability and performance:
+*   **Frontend/UI:** Electron + React + Vite (handles user interaction and orchestration).
+*   **Backend/Runtime:** A native Rust "sidecar" process (`gpu-runtime`) that manages GPU acceleration (wgpu via Vulkan/Metal) and the Whisper inference pipeline.
 
-### Core Technologies
+This architecture isolates the GPU-heavy inference tasks from the UI, preventing crashes in the rendering layer.
 
-*   **Frontend:** The user interface is built with **React** and **Vite**. Styling is handled by **Tailwind CSS**.
-*   **Application Shell:** **Electron** is used to wrap the web frontend into a cross-platform desktop application.
-*   **Backend/Runtime:** A **Rust** sidecar process (`gpu-runtime`) manages transcription tasks. It leverages **wgpu** to interface with the GPU (Vulkan on Windows/Linux, Metal on macOS) and runs **Whisper.cpp** for the actual speech-to-text conversion.
-*   **Communication:** The Electron main process and the Rust sidecar communicate via **JSON-RPC** over `stdio`.
+## Architecture & Design
 
-## Getting Started
+*   **Electron Main Process:** Spawns and manages the Rust sidecar.
+*   **Rust Sidecar (`gpu-runtime`):** Communicates with the main process via JSON-RPC over stdio. It handles device enumeration, model loading, and compute jobs.
+*   **IPC Protocol:**
+    *   Requests: `{"id": 1, "method": "...", "params": {...}}\n`
+    *   Responses: `{"id": 1, "result": {...}}\n` or `{"id": 1, "error": {...}}\n`
+*   **GPU Abstraction:** Uses `wgpu`, mapping to Vulkan on Windows/Linux and Metal on macOS.
+
+## Building and Running
 
 ### Prerequisites
+*   **Node.js** (and `yarn`)
+*   **Rust** (Cargo)
+*   **FFmpeg** (runtime dependency, usually expected in PATH or bundled)
+*   **Whisper CLI** (built from `whisper.cpp`, expected in `runtime/assets` or build dir)
 
-*   Node.js and Yarn
-*   Rust and Cargo
-*   `ffmpeg` (must be in the system's `PATH`)
+### Key Commands
 
-### Development
+**1. Setup & Installation**
+```bash
+yarn install
+```
 
-1.  **Install Dependencies:**
-    ```bash
-    yarn install
-    ```
+**2. Development**
+Runs Vite (Renderer) and Electron (Main), spawning the Rust runtime in debug mode.
+```bash
+# Build the runtime first
+yarn build:runtime
 
-2.  **Build the Rust Runtime:**
-    ```bash
-    cargo build --manifest-path runtime/gpu-runtime/Cargo.toml
-    ```
+# Start the app
+yarn dev
+```
+*Note: You can override the runtime path with `AER_RUNTIME_PATH=/path/to/runtime yarn dev`.*
 
-3.  **Run the Application:**
-    This command starts the Vite development server and launches the Electron app.
-    ```bash
-    yarn dev
-    ```
+**3. Building for Production**
+Builds the release version of the runtime and packages the Electron app.
+```bash
+# Build Rust runtime (release)
+yarn build:runtime
 
-### Building for Production
+# Build Renderer & Main
+yarn build
 
-1.  **Build the Renderer and Main Process:**
-    ```bash
-    yarn build
-    ```
+# Package for current OS
+yarn pack
 
-2.  **Build the Release Runtime:**
-    ```bash
-    yarn build:runtime
-    ```
+# Package for all platforms (requires cross-compilation env)
+yarn pack:all
+```
 
-3.  **Package the Application:**
-    This will create distributable artifacts (e.g., `.dmg`, `.exe`, `.AppImage`) in the `release` directory.
-    ```bash
-    yarn pack
-    ```
+**4. Asset Management**
+Downloads platform-specific binaries/models (ffmpeg, whisper-cli, models) based on `scripts/assets-manifest.json`.
+```bash
+yarn assets:download
+```
 
-### Testing
+**5. Testing**
+```bash
+# Run JS/React unit tests
+yarn test
 
-The project has a comprehensive test suite.
+# Run Rust runtime tests
+yarn test:rust
 
-*   **Run All Tests (JS and Rust):**
-    ```bash
-    yarn test:all
-    ```
+# Run End-to-End tests
+yarn test:e2e
 
-*   **Run JavaScript Tests (Vitest):**
-    ```bash
-    yarn test
-    ```
-
-*   **Run Rust Tests:**
-    ```bash
-    yarn test:rust
-    ```
+# Run all tests
+yarn test:all
+```
 
 ## Project Structure
 
-```
-/
-├─── src/                     # Electron application source
-│   ├─── main/                # Main process
-│   ├─── renderer/            # UI (React)
-│   └─── shared/              # Code shared between main and renderer
-├─── runtime/
-│   └─── gpu-runtime/         # Rust sidecar for GPU tasks
-├─── scripts/                 # Build and development scripts
-├─── resources/               # Assets for the packaged application
-└─── deps/                    # Third-party dependencies (like whisper.cpp)
-```
+*   `src/`
+    *   `main/`: Electron main process (lifecycle, IPC, window management).
+    *   `renderer/`: React UI (Vite entry point).
+    *   `preload/`: Context bridge for renderer-main communication.
+    *   `shared/`: Utilities shared between main and renderer.
+*   `runtime/`
+    *   `gpu-runtime/`: Rust crate for the GPU/Whisper sidecar.
+    *   `assets/`: Directory where runtime looks for bundled binaries/models.
+*   `resources/`
+    *   `runtime-assets/`: Source location for assets to be bundled by electron-builder.
+*   `scripts/`: Build, dev, and asset management scripts.
+*   `dist/`: Compiled frontend output.
+*   `release/`: Final packaged installers/binaries.
 
 ## Development Conventions
 
-### Styling
+*   **Languages:**
+    *   **JavaScript/JSX:** 2-space indent, single quotes, camelCase. React components use PascalCase filenames.
+    *   **Rust:** Standard `rustfmt` style. `snake_case` for modules/functions.
+*   **Commits:** Use short, imperative subjects (e.g., "Fix runtime build").
+*   **Testing:**
+    *   Maintain 100% coverage for JS/React logic (`vitest`).
+    *   Maintain 100% coverage for Rust runtime (`cargo llvm-cov`).
+*   **Versioning:** Follows Semantic Versioning in `package.json`.
 
-*   **Tailwind CSS:** The project uses Tailwind CSS for all styling.
-*   **Custom Theme:** A custom theme is defined in `tailwind.config.js`. Key design tokens include:
-    *   **Fonts:** `Space Grotesk` for display text, `IBM Plex Sans` for body text.
-    *   **Colors:** A custom palette with `base`, `accent`, and `plasma` colors.
+## Key Files
 
-### State Management
-
-*   **Zustand:** The React application uses Zustand for global state management. Store logic can be found in `src/renderer/state/`.
-
-### Inter-Process Communication (IPC)
-
-*   **JSON-RPC:** The Electron main process communicates with the Rust `gpu-runtime` via JSON-RPC messages passed over `stdio`. The defined RPC methods are in `src/shared/rpc.js`.
-*   **Electron IPC:** The renderer process communicates with the main process using Electron's `ipcRenderer` and `ipcMain` modules. A preload script (`src/main/preload.js`) exposes safe, asynchronous APIs to the renderer.
+*   `package.json`: Project scripts, dependencies, and electron-builder configuration.
+*   `runtime/gpu-runtime/Cargo.toml`: Rust workspace definition and dependencies.
+*   `scripts/assets-manifest.json`: Configuration for downloading external binaries and models.
+*   `AGENTS.md`: Detailed module organization and coding guidelines.
