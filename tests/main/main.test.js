@@ -136,7 +136,7 @@ describe('main process', () => {
 
     const { app } = electronMock;
     main.maybeSetAppUserModelId('win32', app);
-    expect(app.setAppUserModelId).toHaveBeenCalledWith('com.aer.subtitleforge');
+    expect(app.setAppUserModelId).toHaveBeenCalledWith('app.aer.subtly');
     main.maybeSetAppUserModelId('darwin', app);
     expect(app.setAppUserModelId).toHaveBeenCalledTimes(1);
 

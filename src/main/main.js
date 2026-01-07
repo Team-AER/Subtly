@@ -19,7 +19,7 @@ const shouldAutoStart = process.env.AER_DISABLE_AUTO_START !== '1';
 
 function maybeSetAppUserModelId(platform = process.platform, appRef = app) {
   if (platform === 'win32') {
-    appRef.setAppUserModelId('com.aer.subtitleforge');
+    appRef.setAppUserModelId('app.aer.subtly');
   }
 }
 

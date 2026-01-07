@@ -1,9 +1,9 @@
 {
-  "name": "aer-subtitle-forge",
+  "name": "subtly",
   "version": "0.1.0",
   "private": true,
   "description": "Desktop app for GPU-accelerated Whisper subtitle generation.",
-  "homepage": "https://aer.app",
+  "homepage": "https://subtly.aer.app",
   "author": "Prakhar Shukla <prafiles@gmail.com>",
   "main": "dist/main.js",
   "type": "commonjs",
@@ -51,8 +51,8 @@
     "vitest": "^2.0.5"
   },
   "build": {
-    "appId": "com.aer.subtitleforge",
-    "productName": "AER Subtitle Forge",
+    "appId": "app.aer.subtly",
+    "productName": "Subtly",
     "files": [
       "dist/main.js",
       "dist/preload.js",

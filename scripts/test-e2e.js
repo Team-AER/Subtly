@@ -673,7 +673,7 @@ function detectGpuBackend() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function main() {
-  console.log('\n\x1b[1m━━━ AER Subtitle Forge E2E Test ━━━\x1b[0m\n');
+  console.log('\n\x1b[1m━━━ AER Subtly E2E Test ━━━\x1b[0m\n');
   
   const gpuInfo = detectGpuBackend();
   console.log(`Platform: ${PLATFORM}-${ARCH}`);
