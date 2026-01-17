@@ -26,6 +26,8 @@ export const useRuntimeStore = create((set) => ({
     dedupMergeGapSec: 0.6,
     translate: true,
     language: 'auto',
+    language: 'auto',
+    exportFormats: ['srt'],
     dryRun: false
   },
   // Progress modal state

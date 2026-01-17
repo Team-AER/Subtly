@@ -11,26 +11,26 @@ import { z } from 'zod';
 
 export function selectBestDevice(devices) {
   if (!devices || devices.length === 0) return null;
-  
+
   // Priority: Vulkan/Metal discrete GPU > integrated GPU > CPU
   const gpuBackends = ['Vulkan', 'Metal', 'vulkan', 'metal', 'wgpu'];
   const gpuTypes = ['DiscreteGpu', 'IntegratedGpu'];
-  
+
   // Find best GPU device
   for (const gpuType of gpuTypes) {
     const gpu = devices.find(
-      (d) => gpuBackends.some((b) => d.backend?.toLowerCase().includes(b.toLowerCase())) && 
-             d.device_type === gpuType
+      (d) => gpuBackends.some((b) => d.backend?.toLowerCase().includes(b.toLowerCase())) &&
+        d.device_type === gpuType
     );
     if (gpu) return gpu;
   }
-  
+
   // Fallback to any GPU-capable device
-  const anyGpu = devices.find((d) => 
+  const anyGpu = devices.find((d) =>
     gpuBackends.some((b) => d.backend?.toLowerCase().includes(b.toLowerCase()))
   );
   if (anyGpu) return anyGpu;
-  
+
   // Final fallback to CPU or first available
   return devices.find((d) => d.device_type === 'Cpu') || devices[0];
 }
@@ -96,12 +96,12 @@ export default function App() {
   useEffect(() => {
     async function resolveModelPaths() {
       if (!window.aerModels) return;
-      
-      const whisperPath = selectedModel 
+
+      const whisperPath = selectedModel
         ? await window.aerModels.getModelPath(selectedModel)
         : null;
       const vadPath = await window.aerModels.getModelPath('silero-vad');
-      
+
       setModelPaths({ whisper: whisperPath, vad: vadPath });
     }
     resolveModelPaths();
@@ -125,10 +125,10 @@ export default function App() {
     const handler = (message) => {
       if (message?.event === 'log') {
         addLog(message.payload);
-        
+
         // Parse log messages for progress updates
         const logStr = String(message.payload);
-        
+
         // Detect file processing start
         if (logStr.startsWith('Processing ')) {
           const filePath = logStr.replace('Processing ', '');
@@ -138,7 +138,7 @@ export default function App() {
             progress: 10,
           });
         }
-        
+
         // Detect ffmpeg conversion (early phase)
         if (logStr.includes('ffmpeg') || logStr.includes('Converting')) {
           updateProgressModal({
@@ -146,7 +146,7 @@ export default function App() {
             progress: 20,
           });
         }
-        
+
         // Detect whisper processing (main phase)
         if (logStr.includes('whisper') || logStr.includes('Transcribing')) {
           updateProgressModal({
@@ -154,7 +154,7 @@ export default function App() {
             progress: 40,
           });
         }
-        
+
         // Skip detection
         if (logStr.startsWith('SKIP')) {
           updateProgressModal({
@@ -163,7 +163,7 @@ export default function App() {
           });
         }
       }
-      
+
       // Handle progress events from runtime (if emitted)
       if (message?.event === 'progress') {
         const { progress, current, total, phase } = message.payload || {};
@@ -178,7 +178,7 @@ export default function App() {
 
     window.aerRuntime.onEvent(handler);
     return () => {
-      window.aerRuntime.onEvent(() => {});
+      window.aerRuntime.onEvent(() => { });
     };
   }, [addLog, updateProgressModal]);
 
@@ -204,6 +204,7 @@ export default function App() {
     dedup_merge_gap_sec: z.number().positive(),
     translate: z.boolean(),
     language: z.string().min(1),
+    output_formats: z.array(z.string()).optional(),
     dry_run: z.boolean()
   });
 
@@ -244,7 +245,7 @@ export default function App() {
       setIsTranscribing(true);
       transcriptionCancelledRef.current = false;
       setTranscriptionCancelled(false);
-      
+
       // Show progress modal
       showProgressModal({
         type: 'transcription',
@@ -276,15 +277,17 @@ export default function App() {
         max_context: Number(settings.maxContext),
         dedup_merge_gap_sec: Number(settings.dedupMergeGapSec),
         translate: Boolean(settings.translate),
+        translate: Boolean(settings.translate),
         language: settings.language || 'auto',
+        output_formats: settings.exportFormats || ['srt'],
         dry_run: Boolean(settings.dryRun)
       });
 
       addLog('Starting subtitle generation...');
       updateProgressModal({ statusMessage: 'Processing audio...', progress: 5 });
-      
+
       const result = await transcribe(payload);
-      
+
       hideProgressModal();
       addLog(`Completed ${result.jobs} job(s).`);
       result.outputs.forEach((out) => addLog(`Wrote: ${out}`));
@@ -337,7 +340,7 @@ export default function App() {
         canCancel={progressModal.canCancel}
         onCancel={progressModal.type === 'transcription' ? handleCancelTranscription : undefined}
       />
-      
+
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(30,41,59,0.85)_0%,rgba(11,15,26,0.9)_45%)]" />
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_70%_10%,rgba(56,189,248,0.2)_0%,transparent_55%),radial-gradient(circle_at_10%_80%,rgba(249,115,22,0.2)_0%,transparent_55%)]" />
       <div className="pointer-events-none absolute inset-0 opacity-20 [background-image:linear-gradient(rgba(148,163,184,0.2)_1px,transparent_1px),linear-gradient(90deg,rgba(148,163,184,0.2)_1px,transparent_1px)] [background-size:42px_42px]" />
@@ -394,9 +397,44 @@ export default function App() {
                     onChange={(event) => setOutputDir(event.target.value)}
                   />
                 </label>
-                <div className="flex flex-wrap gap-3">
-                  <Button 
-                    onClick={handleTranscribe} 
+                <div className="grid gap-2">
+                  <span className="text-xs uppercase text-slate-400">Export formats</span>
+                  <div className="flex flex-wrap gap-2">
+                    {[
+                      { id: 'srt', label: 'SRT (Subtitles)' },
+                      { id: 'vtt', label: 'WebVTT (Subtitles)' },
+                      { id: 'txt', label: 'Text' },
+                      { id: 'json', label: 'JSON' },
+                      { id: 'csv', label: 'CSV' },
+                    ].map((fmt) => {
+                      const isSelected = settings.exportFormats?.includes(fmt.id);
+                      return (
+                        <button
+                          key={fmt.id}
+                          type="button"
+                          onClick={() => {
+                            const current = settings.exportFormats || ['srt'];
+                            const newFormats = current.includes(fmt.id)
+                              ? current.filter((f) => f !== fmt.id)
+                              : [...current, fmt.id];
+                            // Ensure at least one format is selected
+                            if (newFormats.length === 0) return;
+                            updateSettings({ exportFormats: newFormats });
+                          }}
+                          className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition ${isSelected
+                              ? 'border-indigo-500/50 bg-indigo-500/20 text-indigo-300'
+                              : 'border-slate-500/30 bg-slate-900/40 text-slate-400 hover:border-slate-400/50'
+                            }`}
+                        >
+                          {fmt.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-3 pt-2">
+                  <Button
+                    onClick={handleTranscribe}
                     disabled={isTranscribing || !inputPath}
                   >
                     {isTranscribing ? 'Generating…' : 'Generate subtitles'}
@@ -485,11 +523,10 @@ export default function App() {
                         type="button"
                         key={`${device.name}-${device.device}`}
                         onClick={() => setSelectedDevice(device)}
-                        className={`rounded-xl border p-3 text-left transition ${
-                          selectedDevice?.name === device.name
-                            ? 'border-accent-400/80 bg-slate-950/80'
-                            : 'border-slate-500/30 bg-slate-900/60 hover:border-slate-300/60'
-                        }`}
+                        className={`rounded-xl border p-3 text-left transition ${selectedDevice?.name === device.name
+                          ? 'border-accent-400/80 bg-slate-950/80'
+                          : 'border-slate-500/30 bg-slate-900/60 hover:border-slate-300/60'
+                          }`}
                       >
                         <h4 className="font-semibold text-sm">{device.name}</h4>
                         <p className="text-xs text-slate-400">
@@ -504,183 +541,183 @@ export default function App() {
                 <div className="mb-2">
                   <h3 className="text-sm font-semibold text-slate-200 mb-4">Whisper pipeline settings</h3>
                 </div>
-            <div className="grid gap-4 md:grid-cols-2">
-              <label className="grid gap-2 text-sm text-slate-300">
-                Whisper CLI path
-                <input
-                  className="rounded-xl border border-slate-500/40 bg-slate-950/70 px-3 py-2 text-sm"
-                  value={settings.whisperPath}
-                  placeholder="Auto (bundled in app)"
-                  onChange={(event) => updateSettings({ whisperPath: event.target.value })}
-                />
-              </label>
-              <label className="grid gap-2 text-sm text-slate-300">
-                FFmpeg path
-                <input
-                  className="rounded-xl border border-slate-500/40 bg-slate-950/70 px-3 py-2 text-sm"
-                  value={settings.ffmpegPath}
-                  placeholder="Auto (bundled in app)"
-                  onChange={(event) => updateSettings({ ffmpegPath: event.target.value })}
-                />
-              </label>
-              <label className="grid gap-2 text-sm text-slate-300">
-                VK_ICD_FILENAMES override (optional)
-                <input
-                  className="rounded-xl border border-slate-500/40 bg-slate-950/70 px-3 py-2 text-sm"
-                  placeholder="/usr/share/vulkan/icd.d/radeon_icd.x86_64.json"
-                  value={settings.vkIcdFilenames}
-                  onChange={(event) => updateSettings({ vkIcdFilenames: event.target.value })}
-                />
-              </label>
-              <label className="grid gap-2 text-sm text-slate-300">
-                Threads
-                <input
-                  className="rounded-xl border border-slate-500/40 bg-slate-950/70 px-3 py-2 text-sm"
-                  type="number"
-                  min={1}
-                  value={settings.threads}
-                  onChange={(event) => updateSettings({ threads: Number(event.target.value) })}
-                />
-              </label>
-              <label className="grid gap-2 text-sm text-slate-300">
-                Beam size
-                <input
-                  className="rounded-xl border border-slate-500/40 bg-slate-950/70 px-3 py-2 text-sm"
-                  type="number"
-                  min={1}
-                  value={settings.beamSize}
-                  onChange={(event) => updateSettings({ beamSize: Number(event.target.value) })}
-                />
-              </label>
-              <label className="grid gap-2 text-sm text-slate-300">
-                Best of
-                <input
-                  className="rounded-xl border border-slate-500/40 bg-slate-950/70 px-3 py-2 text-sm"
-                  type="number"
-                  min={1}
-                  value={settings.bestOf}
-                  onChange={(event) => updateSettings({ bestOf: Number(event.target.value) })}
-                />
-              </label>
-              <label className="grid gap-2 text-sm text-slate-300">
-                Max line length
-                <input
-                  className="rounded-xl border border-slate-500/40 bg-slate-950/70 px-3 py-2 text-sm"
-                  type="number"
-                  min={20}
-                  value={settings.maxLenChars}
-                  onChange={(event) => updateSettings({ maxLenChars: Number(event.target.value) })}
-                />
-              </label>
-              <label className="grid gap-2 text-sm text-slate-300">
-                VAD threshold
-                <input
-                  className="rounded-xl border border-slate-500/40 bg-slate-950/70 px-3 py-2 text-sm"
-                  type="number"
-                  step="0.01"
-                  value={settings.vadThreshold}
-                  onChange={(event) => updateSettings({ vadThreshold: Number(event.target.value) })}
-                />
-              </label>
-              <label className="grid gap-2 text-sm text-slate-300">
-                VAD min speech (ms)
-                <input
-                  className="rounded-xl border border-slate-500/40 bg-slate-950/70 px-3 py-2 text-sm"
-                  type="number"
-                  min={0}
-                  value={settings.vadMinSpeechMs}
-                  onChange={(event) => updateSettings({ vadMinSpeechMs: Number(event.target.value) })}
-                />
-              </label>
-              <label className="grid gap-2 text-sm text-slate-300">
-                VAD min silence (ms)
-                <input
-                  className="rounded-xl border border-slate-500/40 bg-slate-950/70 px-3 py-2 text-sm"
-                  type="number"
-                  min={0}
-                  value={settings.vadMinSilMs}
-                  onChange={(event) => updateSettings({ vadMinSilMs: Number(event.target.value) })}
-                />
-              </label>
-              <label className="grid gap-2 text-sm text-slate-300">
-                VAD pad (ms)
-                <input
-                  className="rounded-xl border border-slate-500/40 bg-slate-950/70 px-3 py-2 text-sm"
-                  type="number"
-                  min={0}
-                  value={settings.vadPadMs}
-                  onChange={(event) => updateSettings({ vadPadMs: Number(event.target.value) })}
-                />
-              </label>
-              <label className="grid gap-2 text-sm text-slate-300">
-                No speech threshold
-                <input
-                  className="rounded-xl border border-slate-500/40 bg-slate-950/70 px-3 py-2 text-sm"
-                  type="number"
-                  step="0.01"
-                  value={settings.noSpeechThold}
-                  onChange={(event) => updateSettings({ noSpeechThold: Number(event.target.value) })}
-                />
-              </label>
-              <label className="grid gap-2 text-sm text-slate-300">
-                Max context
-                <input
-                  className="rounded-xl border border-slate-500/40 bg-slate-950/70 px-3 py-2 text-sm"
-                  type="number"
-                  min={0}
-                  value={settings.maxContext}
-                  onChange={(event) => updateSettings({ maxContext: Number(event.target.value) })}
-                />
-              </label>
-              <label className="flex items-center gap-2 text-sm text-slate-300">
-                <input
-                  type="checkbox"
-                  checked={settings.splitOnWord}
-                  onChange={(event) => updateSettings({ splitOnWord: event.target.checked })}
-                />
-                Split on word boundaries
-              </label>
-              <label className="flex items-center gap-2 text-sm text-slate-300">
-                <input
-                  type="checkbox"
-                  checked={settings.translate}
-                  onChange={(event) => updateSettings({ translate: event.target.checked })}
-                />
-                Translate to English
-              </label>
-              <label className="grid gap-2 text-sm text-slate-300">
-                Language
-                <input
-                  className="rounded-xl border border-slate-500/40 bg-slate-950/70 px-3 py-2 text-sm"
-                  value={settings.language}
-                  onChange={(event) => updateSettings({ language: event.target.value })}
-                />
-              </label>
-              <label className="grid gap-2 text-sm text-slate-300">
-                Dedupe merge gap (sec)
-                <input
-                  className="rounded-xl border border-slate-500/40 bg-slate-950/70 px-3 py-2 text-sm"
-                  type="number"
-                  step="0.1"
-                  min={0}
-                  value={settings.dedupMergeGapSec}
-                  onChange={(event) => updateSettings({ dedupMergeGapSec: Number(event.target.value) })}
-                />
-              </label>
-              <label className="flex items-center gap-2 text-sm text-slate-300">
-                <input
-                  type="checkbox"
-                  checked={settings.dryRun}
-                  onChange={(event) => updateSettings({ dryRun: event.target.checked })}
-                />
-                Dry run
-              </label>
-            </div>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <label className="grid gap-2 text-sm text-slate-300">
+                    Whisper CLI path
+                    <input
+                      className="rounded-xl border border-slate-500/40 bg-slate-950/70 px-3 py-2 text-sm"
+                      value={settings.whisperPath}
+                      placeholder="Auto (bundled in app)"
+                      onChange={(event) => updateSettings({ whisperPath: event.target.value })}
+                    />
+                  </label>
+                  <label className="grid gap-2 text-sm text-slate-300">
+                    FFmpeg path
+                    <input
+                      className="rounded-xl border border-slate-500/40 bg-slate-950/70 px-3 py-2 text-sm"
+                      value={settings.ffmpegPath}
+                      placeholder="Auto (bundled in app)"
+                      onChange={(event) => updateSettings({ ffmpegPath: event.target.value })}
+                    />
+                  </label>
+                  <label className="grid gap-2 text-sm text-slate-300">
+                    VK_ICD_FILENAMES override (optional)
+                    <input
+                      className="rounded-xl border border-slate-500/40 bg-slate-950/70 px-3 py-2 text-sm"
+                      placeholder="/usr/share/vulkan/icd.d/radeon_icd.x86_64.json"
+                      value={settings.vkIcdFilenames}
+                      onChange={(event) => updateSettings({ vkIcdFilenames: event.target.value })}
+                    />
+                  </label>
+                  <label className="grid gap-2 text-sm text-slate-300">
+                    Threads
+                    <input
+                      className="rounded-xl border border-slate-500/40 bg-slate-950/70 px-3 py-2 text-sm"
+                      type="number"
+                      min={1}
+                      value={settings.threads}
+                      onChange={(event) => updateSettings({ threads: Number(event.target.value) })}
+                    />
+                  </label>
+                  <label className="grid gap-2 text-sm text-slate-300">
+                    Beam size
+                    <input
+                      className="rounded-xl border border-slate-500/40 bg-slate-950/70 px-3 py-2 text-sm"
+                      type="number"
+                      min={1}
+                      value={settings.beamSize}
+                      onChange={(event) => updateSettings({ beamSize: Number(event.target.value) })}
+                    />
+                  </label>
+                  <label className="grid gap-2 text-sm text-slate-300">
+                    Best of
+                    <input
+                      className="rounded-xl border border-slate-500/40 bg-slate-950/70 px-3 py-2 text-sm"
+                      type="number"
+                      min={1}
+                      value={settings.bestOf}
+                      onChange={(event) => updateSettings({ bestOf: Number(event.target.value) })}
+                    />
+                  </label>
+                  <label className="grid gap-2 text-sm text-slate-300">
+                    Max line length
+                    <input
+                      className="rounded-xl border border-slate-500/40 bg-slate-950/70 px-3 py-2 text-sm"
+                      type="number"
+                      min={20}
+                      value={settings.maxLenChars}
+                      onChange={(event) => updateSettings({ maxLenChars: Number(event.target.value) })}
+                    />
+                  </label>
+                  <label className="grid gap-2 text-sm text-slate-300">
+                    VAD threshold
+                    <input
+                      className="rounded-xl border border-slate-500/40 bg-slate-950/70 px-3 py-2 text-sm"
+                      type="number"
+                      step="0.01"
+                      value={settings.vadThreshold}
+                      onChange={(event) => updateSettings({ vadThreshold: Number(event.target.value) })}
+                    />
+                  </label>
+                  <label className="grid gap-2 text-sm text-slate-300">
+                    VAD min speech (ms)
+                    <input
+                      className="rounded-xl border border-slate-500/40 bg-slate-950/70 px-3 py-2 text-sm"
+                      type="number"
+                      min={0}
+                      value={settings.vadMinSpeechMs}
+                      onChange={(event) => updateSettings({ vadMinSpeechMs: Number(event.target.value) })}
+                    />
+                  </label>
+                  <label className="grid gap-2 text-sm text-slate-300">
+                    VAD min silence (ms)
+                    <input
+                      className="rounded-xl border border-slate-500/40 bg-slate-950/70 px-3 py-2 text-sm"
+                      type="number"
+                      min={0}
+                      value={settings.vadMinSilMs}
+                      onChange={(event) => updateSettings({ vadMinSilMs: Number(event.target.value) })}
+                    />
+                  </label>
+                  <label className="grid gap-2 text-sm text-slate-300">
+                    VAD pad (ms)
+                    <input
+                      className="rounded-xl border border-slate-500/40 bg-slate-950/70 px-3 py-2 text-sm"
+                      type="number"
+                      min={0}
+                      value={settings.vadPadMs}
+                      onChange={(event) => updateSettings({ vadPadMs: Number(event.target.value) })}
+                    />
+                  </label>
+                  <label className="grid gap-2 text-sm text-slate-300">
+                    No speech threshold
+                    <input
+                      className="rounded-xl border border-slate-500/40 bg-slate-950/70 px-3 py-2 text-sm"
+                      type="number"
+                      step="0.01"
+                      value={settings.noSpeechThold}
+                      onChange={(event) => updateSettings({ noSpeechThold: Number(event.target.value) })}
+                    />
+                  </label>
+                  <label className="grid gap-2 text-sm text-slate-300">
+                    Max context
+                    <input
+                      className="rounded-xl border border-slate-500/40 bg-slate-950/70 px-3 py-2 text-sm"
+                      type="number"
+                      min={0}
+                      value={settings.maxContext}
+                      onChange={(event) => updateSettings({ maxContext: Number(event.target.value) })}
+                    />
+                  </label>
+                  <label className="flex items-center gap-2 text-sm text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={settings.splitOnWord}
+                      onChange={(event) => updateSettings({ splitOnWord: event.target.checked })}
+                    />
+                    Split on word boundaries
+                  </label>
+                  <label className="flex items-center gap-2 text-sm text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={settings.translate}
+                      onChange={(event) => updateSettings({ translate: event.target.checked })}
+                    />
+                    Translate to English
+                  </label>
+                  <label className="grid gap-2 text-sm text-slate-300">
+                    Language
+                    <input
+                      className="rounded-xl border border-slate-500/40 bg-slate-950/70 px-3 py-2 text-sm"
+                      value={settings.language}
+                      onChange={(event) => updateSettings({ language: event.target.value })}
+                    />
+                  </label>
+                  <label className="grid gap-2 text-sm text-slate-300">
+                    Dedupe merge gap (sec)
+                    <input
+                      className="rounded-xl border border-slate-500/40 bg-slate-950/70 px-3 py-2 text-sm"
+                      type="number"
+                      step="0.1"
+                      min={0}
+                      value={settings.dedupMergeGapSec}
+                      onChange={(event) => updateSettings({ dedupMergeGapSec: Number(event.target.value) })}
+                    />
+                  </label>
+                  <label className="flex items-center gap-2 text-sm text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={settings.dryRun}
+                      onChange={(event) => updateSettings({ dryRun: event.target.checked })}
+                    />
+                    Dry run
+                  </label>
+                </div>
               </CardContent>
             </CollapsibleContent>
           </Collapsible>
         </Card>
-      </main>
-    </div>
+      </main >
+    </div >
   );
 }

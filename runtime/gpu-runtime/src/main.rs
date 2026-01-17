@@ -233,6 +233,7 @@ struct TranscribeParams {
     dedup_merge_gap_sec: Option<f32>,
     translate: Option<bool>,
     language: Option<String>,
+    output_formats: Option<Vec<String>>,
     dry_run: Option<bool>,
 }
 
@@ -259,6 +260,7 @@ struct TranscribeConfig {
     dedup_merge_gap_sec: f32,
     translate: bool,
     language: String,
+    output_formats: Vec<String>,
     dry_run: bool,
 }
 
@@ -319,6 +321,7 @@ fn transcribe(params: &serde_json::Value, stdout: &mut impl Write) -> Result<ser
         dedup_merge_gap_sec: input.dedup_merge_gap_sec.unwrap_or(0.6),
         translate: input.translate.unwrap_or(true),
         language: input.language.unwrap_or_else(|| "auto".to_string()),
+        output_formats: input.output_formats.unwrap_or_else(|| vec!["srt".to_string()]),
         dry_run: input.dry_run.unwrap_or(false),
     };
 
@@ -337,11 +340,48 @@ fn transcribe(params: &serde_json::Value, stdout: &mut impl Write) -> Result<ser
     let mut outputs = Vec::new();
     for input_path in inputs {
         let output_base = resolve_output_base(&config, &input_path)?;
-        let output_srt = output_base.with_extension("srt");
+        // let output_srt = output_base.with_extension("srt");
 
-        if is_up_to_date(&input_path, &output_srt) {
+        let mut outputs_for_file = Vec::new();
+
+        for format in &config.output_formats {
+             let (_flag, ext) = match format.as_str() {
+                "srt" => ("-osrt", "srt"),
+                "vtt" => ("-ovtt", "vtt"),
+                "json" => ("-oj", "json"),
+                "csv" => ("-ocsv", "csv"),
+                "txt" => ("-otxt", "txt"),
+                _ => ("-osrt", "srt"), // Default fallback
+            };
+            
+            let output_file = output_base.with_extension(ext);
+            
+            // For now, simpler check: if ANY output is missing or outdated, we re-run.
+            // A more robust way would be to check ALL. 
+            // But since whisper CLI generates all requested at once, if we run it, we get all.
+            // So we just stick to checking if we SHOULD run.
+            // Actually, whisper-cli creates files based on flags.
+            // If we want to support incremental, we'd need to check per file.
+            // But `whisper-cli` usage here constructs args for one run.
+            // If we construct one command with multiple output flags, it generates all.
+            
+             outputs_for_file.push(output_file);
+        }
+
+        // Check if we need to run: if ANY target output is missing or older than input
+        let mut needs_run = false;
+        for output_file in &outputs_for_file {
+             if !is_up_to_date(&input_path, output_file) {
+                 needs_run = true;
+                 break;
+             }
+        }
+
+        if !needs_run {
             write_event(stdout, "log", json!(format!("SKIP (up-to-date): {}", input_path.display())))?;
-            outputs.push(output_srt.display().to_string());
+            for out in &outputs_for_file {
+                outputs.push(out.display().to_string());
+            }
             continue;
         }
 
@@ -416,28 +456,54 @@ fn transcribe(params: &serde_json::Value, stdout: &mut impl Write) -> Result<ser
             config.vad_pad_ms.to_string(),
             "-ml".to_string(),
             config.max_len_chars.to_string(),
-            "-osrt".to_string(),
-            "-of".to_string(),
-            output_base.to_string_lossy().to_string(),
-            "-pp".to_string(),
         ]);
-
+        
+        // Append output options
         if config.split_on_word {
             whisper_args.push("-sow".to_string());
         }
 
+        // Add output format flags
+        // IMPORTANT: whisper.cpp usually takes just -of (output file) and generates all formats specified by flags like -osrt, -otxt etc.
+        // OR checks for extensions?
+        // Let's check typical CLI: -osrt -otxt -of filename (without ext)
+        
+        // We set the base output filename (without extension)
+        whisper_args.push("-of".to_string());
+        whisper_args.push(output_base.to_string_lossy().to_string());
+
+        // And add flags for each format
+        for format in &config.output_formats {
+             let flag = match format.as_str() {
+                "srt" => "-osrt",
+                "vtt" => "-ovtt",
+                "json" => "-oj",
+                "csv" => "-ocsv",
+                "txt" => "-otxt",
+                _ => "-osrt", 
+            };
+            whisper_args.push(flag.to_string());
+        }
+
         run_command(stdout, &config.whisper_path, &whisper_args, config.dry_run, config.vk_icd_filenames.as_deref())?;
 
-        if !config.dry_run {
-            dedup_srt(&output_srt, config.dedup_merge_gap_sec)?;
-        } else {
-            write_event(stdout, "log", json!(format!("DRY-RUN post-process SRT: {}", output_srt.display())))?;
+        // Post-processing (dedup) - usually only for SRT.
+        // If SRT is one of the outputs, we dedup it.
+        if config.output_formats.contains(&"srt".to_string()) && !config.dry_run {
+             let output_srt = output_base.with_extension("srt");
+             dedup_srt(&output_srt, config.dedup_merge_gap_sec)?;
+        } else if config.dry_run {
+             let output_srt = output_base.with_extension("srt");
+             write_event(stdout, "log", json!(format!("DRY-RUN post-process SRT: {}", output_srt.display())))?;
         }
 
         drop(tmp_file);
 
-        outputs.push(output_srt.display().to_string());
-        write_event(stdout, "log", json!(format!("Wrote: {}", output_srt.display())))?;
+        for out in outputs_for_file {
+             let out_str = out.display().to_string();
+             outputs.push(out_str.clone());
+             write_event(stdout, "log", json!(format!("Wrote: {}", out_str)))?;
+        }
     }
 
     Ok(json!({
@@ -1126,6 +1192,7 @@ mod tests {
             dedup_merge_gap_sec: 0.1,
             translate: true,
             language: "auto".to_string(),
+            output_formats: vec!["srt".to_string()],
             dry_run: true,
         };
 
@@ -2116,5 +2183,55 @@ mod tests {
         let mut out = Vec::new();
         let err = transcribe_with_lock(&params, &mut out).unwrap_err();
         assert!(err.to_string().contains("No media files found"));
+    }
+
+    #[test]
+    fn transcribes_with_multiple_formats() {
+        let temp = tempfile::tempdir().unwrap();
+        let input = temp.path().join("test.wav");
+        fs::write(&input, "x").unwrap();
+
+        let params = json!({
+            "input_path": input.to_string_lossy(),
+            "output_formats": ["srt", "vtt", "json", "csv", "txt"],
+            "dry_run": true,
+            "threads": 1,
+            "beam_size": 1,
+            "best_of": 1,
+            "max_len_chars": 60,
+            "split_on_word": true,
+            "vad_threshold": 0.35,
+            "vad_min_speech_ms": 200,
+            "vad_min_sil_ms": 250,
+            "vad_pad_ms": 80,
+            "no_speech_thold": 0.75,
+            "max_context": 0,
+            "dedup_merge_gap_sec": 0.6,
+            "translate": true,
+            "language": "auto"
+        });
+
+        let mut out = Vec::new();
+        let result = transcribe_with_lock(&params, &mut out).unwrap();
+        let jobs = result["jobs"].as_u64().unwrap();
+        assert_eq!(jobs, 5); // 5 formats
+        let outputs: Vec<String> = result["outputs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|value| value.as_str().unwrap().to_string())
+            .collect();
+        assert!(outputs.iter().any(|out| out.ends_with(".srt")));
+        assert!(outputs.iter().any(|out| out.ends_with(".vtt")));
+        assert!(outputs.iter().any(|out| out.ends_with(".json")));
+        assert!(outputs.iter().any(|out| out.ends_with(".csv")));
+        assert!(outputs.iter().any(|out| out.ends_with(".txt")));
+
+        let log = String::from_utf8(out).unwrap();
+        assert!(log.contains("-osrt"));
+        assert!(log.contains("-ovtt"));
+        assert!(log.contains("-oj"));
+        assert!(log.contains("-ocsv"));
+        assert!(log.contains("-otxt"));
     }
 }
