@@ -1,0 +1,69 @@
+name: Build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libudev-dev
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'yarn'
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Download assets
+        run: yarn assets:download
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build Runtime
+        run: yarn build:runtime
+        env:
+          # On Windows, we might need to ensure build tools are available, but actions/runner usually has them.
+          # We might need to handle specific linker flags if any, but standard cargo build is usually fine.
+          RUST_BACKTRACE: 1
+
+      - name: Build Renderer & Main
+        run: yarn build
+
+      - name: Package Application
+        run: yarn pack
+
+        # Note: yarn pack (electron-builder) will output to 'release' directory as per package.json
+        # "directories": { "output": "release" }
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: subtly-${{ matrix.os }}
+          path: release/*.{dmg,exe,AppImage,deb,nsis}
+          if-no-files-found: warn

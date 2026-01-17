@@ -1,5 +1,7 @@
 # Subtly (Electron + GPU Sidecar)
 
+![Build Status](https://github.com/Team-AER/Subtly/actions/workflows/build.yml/badge.svg)
+
 This repo is a working scaffold for an Electron desktop app that generates subtitles for audio/video using Whisper. The UI is Electron + React + Vite; the runtime is Rust + wgpu (Vulkan on Windows/Linux, Metal on macOS). It is intentionally split so GPU faults don't crash the UI.
 
 ## Layout
