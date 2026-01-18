@@ -72,7 +72,7 @@ jobs:
         run: yarn build
 
       - name: Package Application
-        run: yarn pack
+        run: yarn run pack
 
         # Note: yarn pack (electron-builder) will output to 'release' directory as per package.json
         # "directories": { "output": "release" }
