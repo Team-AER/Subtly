@@ -73,6 +73,8 @@ jobs:
 
       - name: Package Application
         run: yarn run pack
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
         # Note: yarn pack (electron-builder) will output to 'release' directory as per package.json
         # "directories": { "output": "release" }
