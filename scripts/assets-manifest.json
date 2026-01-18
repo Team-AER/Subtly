@@ -4,7 +4,7 @@
       {
         "name": "ffmpeg",
         "url": "https://github.com/eugeneware/ffmpeg-static/releases/download/b6.0/ffmpeg-darwin-arm64.gz",
-        "sha256": "8923876afa8db5585022d7860ec7e589af192f441c56793971276d450ed3bbfa",
+        "sha256": "6be74d6f449889c2e87a75873894f8520cad56c08ac76f2a628d85b0519daaca",
         "dest": "resources/runtime-assets/bin/ffmpeg.gz",
         "mode": "755",
         "extract": "gunzip"
