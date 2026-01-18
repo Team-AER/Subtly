@@ -26,11 +26,21 @@ async function copyDir(src, dest, clean = true) {
 }
 
 async function buildRenderer() {
-  const viteBin = path.join(root, 'node_modules', '.bin', process.platform === 'win32' ? 'vite.cmd' : 'vite');
-  const result = spawnSync(viteBin, ['build'], {
+  let viteBin;
+  try {
+    viteBin = require.resolve('vite/bin/vite.js', { paths: [root] });
+  } catch (err) {
+    console.error('Vite is not installed. Ensure devDependencies are installed (avoid NODE_ENV=production during install).');
+    throw err;
+  }
+
+  const result = spawnSync(process.execPath, [viteBin, 'build'], {
     cwd: root,
     stdio: 'inherit'
   });
+  if (result.error) {
+    console.error(result.error);
+  }
   if (result.status !== 0) {
     process.exit(result.status ?? 1);
   }
