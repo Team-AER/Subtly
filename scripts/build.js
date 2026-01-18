@@ -28,7 +28,15 @@ async function copyDir(src, dest, clean = true) {
 async function buildRenderer() {
   let viteBin;
   try {
-    viteBin = require.resolve('vite/bin/vite.js', { paths: [root] });
+    // Resolve the vite package directory, then construct the path to the binary
+    const vitePackage = require.resolve('vite/package.json', { paths: [root] });
+    const viteDir = path.dirname(vitePackage);
+    viteBin = path.join(viteDir, 'bin', 'vite.js');
+
+    // Verify the binary exists
+    if (!fs.existsSync(viteBin)) {
+      throw new Error('Vite binary not found at: ' + viteBin);
+    }
   } catch (err) {
     console.error('Vite is not installed. Ensure devDependencies are installed (avoid NODE_ENV=production during install).');
     throw err;

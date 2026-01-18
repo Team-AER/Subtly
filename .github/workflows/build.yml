@@ -33,6 +33,16 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libasound2-dev libudev-dev
+      - name: Install system dependencies (macOS)
+        if: matrix.os == 'macos-14'
+        run: |
+          brew install cmake pkg-config
+
+      - name: Install system dependencies (Windows)
+        if: matrix.os == 'windows-2022'
+        shell: pwsh
+        run: |
+          choco install -y cmake pkgconfiglite
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable

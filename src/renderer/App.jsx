@@ -277,7 +277,6 @@ export default function App() {
         max_context: Number(settings.maxContext),
         dedup_merge_gap_sec: Number(settings.dedupMergeGapSec),
         translate: Boolean(settings.translate),
-        translate: Boolean(settings.translate),
         language: settings.language || 'auto',
         output_formats: settings.exportFormats || ['srt'],
         dry_run: Boolean(settings.dryRun)
