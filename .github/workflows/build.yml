@@ -81,5 +81,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: subtly-${{ matrix.os }}
-          path: release/*.{dmg,exe,AppImage,deb,nsis}
+          path: |
+            release/*.dmg
+            release/*.exe
+            release/*.AppImage
+            release/*.deb
           if-no-files-found: warn
