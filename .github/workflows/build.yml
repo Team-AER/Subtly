@@ -11,19 +11,25 @@ env:
 
 jobs:
   build:
-    name: Build (${{ matrix.os }})
+    name: Build (${{ matrix.os }} / ${{ matrix.arch }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, ubuntu-latest, windows-latest]
+        include:
+          - os: macos-14
+            arch: arm64
+          - os: ubuntu-22.04
+            arch: amd64
+          - os: windows-2022
+            arch: amd64
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Install system dependencies (Linux)
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-22.04'
         run: |
           sudo apt-get update
           sudo apt-get install -y libasound2-dev libudev-dev
