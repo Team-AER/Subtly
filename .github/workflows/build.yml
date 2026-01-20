@@ -42,7 +42,7 @@ jobs:
         if: matrix.os == 'windows-2022'
         shell: pwsh
         run: |
-          choco install -y cmake pkgconfiglite
+          choco install -y cmake pkgconfiglite --allow-empty-checksums
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
