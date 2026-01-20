@@ -62,6 +62,7 @@
       "package.json"
     ],
     "asar": true,
+    "icon": "resources/icon.png",
     "directories": {
       "output": "release",
       "buildResources": "resources"
@@ -83,7 +84,12 @@
     "mac": {
       "target": [
         "dmg"
-      ]
+      ],
+      "category": "public.app-category.utilities",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "resources/entitlements.mac.plist",
+      "entitlementsInherit": "resources/entitlements.mac.plist"
     },
     "win": {
       "target": [
@@ -92,6 +98,7 @@
     },
     "linux": {
       "maintainer": "Prakhar Shukla <prafiles@gmail.com>",
+      "category": "AudioVideo",
       "target": [
         "AppImage",
         "deb"
