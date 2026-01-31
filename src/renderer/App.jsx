@@ -359,7 +359,7 @@ export default function App() {
                 {pingQuery.isSuccess ? pingQuery.data.message : 'Booting...'}
               </p>
               {pingQuery.isSuccess && (
-                <p className="text-xs text-slate-400">Backend: {pingQuery.data.backend}</p>
+                <p className="text-xs text-slate-400">Backend: {pingQuery.data.gpu_backend}</p>
               )}
             </div>
           </div>
@@ -421,8 +421,8 @@ export default function App() {
                             updateSettings({ exportFormats: newFormats });
                           }}
                           className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition ${isSelected
-                              ? 'border-indigo-500/50 bg-indigo-500/20 text-indigo-300'
-                              : 'border-slate-500/30 bg-slate-900/40 text-slate-400 hover:border-slate-400/50'
+                            ? 'border-indigo-500/50 bg-indigo-500/20 text-indigo-300'
+                            : 'border-slate-500/30 bg-slate-900/40 text-slate-400 hover:border-slate-400/50'
                             }`}
                         >
                           {fmt.label}
@@ -487,7 +487,7 @@ export default function App() {
                     </div>
                     <div className="rounded-xl border border-slate-500/30 bg-slate-900/60 p-3">
                       <p className="text-xs text-slate-400">Backend</p>
-                      <p className="text-lg font-semibold">{pingQuery.data?.backend ?? '--'}</p>
+                      <p className="text-lg font-semibold">{pingQuery.data?.gpu_backend ?? '--'}</p>
                     </div>
                     <div className="rounded-xl border border-slate-500/30 bg-slate-900/60 p-3">
                       <p className="text-xs text-slate-400">Selected device</p>

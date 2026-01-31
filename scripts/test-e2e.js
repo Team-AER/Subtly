@@ -453,7 +453,8 @@ async function downloadDependencies() {
     if (!whisperCliPath) {
       // Check if it's in PATH
       try {
-        const result = execSync('which whisper-cli 2>/dev/null || where whisper-cli 2>nul', { encoding: 'utf8' });
+        const cmd = IS_WINDOWS ? 'where whisper-cli 2>nul' : 'which whisper-cli 2>/dev/null';
+        const result = execSync(cmd, { encoding: 'utf8' });
         if (result.trim()) {
           whisperCliPath = result.trim().split('\n')[0];
           success(`Found whisper-cli in PATH: ${whisperCliPath}`);
@@ -711,6 +712,15 @@ async function main() {
 
     // Ping to verify runtime is ready and check GPU status
     const pingResult = await client.ping();
+
+    // Validate ping response structure matches frontend schema
+    if (!pingResult.message || typeof pingResult.message !== 'string') {
+      throw new Error('Ping response missing required "message" field');
+    }
+    if (!pingResult.gpu_backend || typeof pingResult.gpu_backend !== 'string') {
+      throw new Error('Ping response missing required "gpu_backend" field');
+    }
+
     if (pingResult.gpu_enabled) {
       success(`Runtime ready with GPU: ${pingResult.gpu_name} (${pingResult.gpu_backend})`);
     } else {
