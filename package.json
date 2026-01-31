@@ -82,6 +82,7 @@
         "to": "runtime/assets"
       }
     ],
+    "afterSign": "scripts/notarize.js",
     "mac": {
       "target": [
         "dmg"
@@ -90,8 +91,7 @@
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "entitlements": "resources/entitlements.mac.plist",
-      "entitlementsInherit": "resources/entitlements.mac.plist",
-      "afterSign": "scripts/notarize.js"
+      "entitlementsInherit": "resources/entitlements.mac.plist"
     },
     "win": {
       "target": [
