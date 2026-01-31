@@ -71,6 +71,33 @@ jobs:
       - name: Build Renderer & Main
         run: yarn build
 
+      - name: Validate Apple Credentials (macOS only)
+        if: matrix.os == 'macos-14'
+        run: |
+          if [ -n "$APPLE_ID" ] && [ -n "$APPLE_APP_SPECIFIC_PASSWORD" ] && [ -n "$APPLE_TEAM_ID" ]; then
+            echo "✓ Apple credentials are set"
+            echo "  APPLE_ID: ${APPLE_ID}"
+            echo "  APPLE_TEAM_ID: ${APPLE_TEAM_ID}"
+            echo "  Testing authentication with Apple..."
+            
+            # Test notarytool authentication
+            xcrun notarytool history --apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$APPLE_TEAM_ID" 2>&1 | head -5 || {
+              echo "❌ ERROR: Failed to authenticate with Apple notarization service"
+              echo "Please verify:"
+              echo "  1. APPLE_ID is correct"
+              echo "  2. APPLE_APP_SPECIFIC_PASSWORD is valid (generate new one at appleid.apple.com)"
+              echo "  3. APPLE_TEAM_ID is exactly 10 characters"
+              exit 1
+            }
+            echo "✓ Apple authentication successful"
+          else
+            echo "⚠ Apple credentials not set - notarization will be skipped"
+          fi
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
       - name: Package Application
         run: yarn run pack
         env:
