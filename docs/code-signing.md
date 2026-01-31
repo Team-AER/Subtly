@@ -83,20 +83,74 @@ yarn pack
 
 The GitHub Actions workflow is already configured. You need to add these secrets:
 
-1. Go to your GitHub repository
-2. Navigate to **Settings → Secrets and variables → Actions**
-3. Add the following **Repository secrets**:
+#### Quick Setup Using Helper Script
 
-   - `CSC_LINK`: Base64-encoded `.p12` certificate
-     ```bash
-     # Create base64-encoded certificate
-     cat certificate.p12 | base64 > certificate.base64.txt
-     # Copy contents and paste as secret value
-     ```
-   - `CSC_KEY_PASSWORD`: Password for the `.p12` file
-   - `APPLE_ID`: Your Apple ID email
-   - `APPLE_APP_SPECIFIC_PASSWORD`: App-specific password from appleid.apple.com
-   - `APPLE_TEAM_ID`: Your 10-character Team ID
+Run the certificate export helper script on your Mac:
+
+```bash
+chmod +x scripts/export-certificate.sh
+./scripts/export-certificate.sh
+```
+
+This will guide you through the entire process.
+
+#### Manual Setup Instructions
+
+1. **Export Your Developer ID Certificate**
+
+   On your Mac where the Developer ID certificate is installed:
+
+   a. Open **Keychain Access** application
+   
+   b. In the left sidebar, select **login** keychain
+   
+   c. In the category list, select **My Certificates**
+   
+   d. Find your **Developer ID Application** certificate (the one with ID: `641EFE28C76C562D4D8C962BC792601F0AAF686B`)
+   
+   e. Right-click and select **Export "Developer ID Application..."**
+   
+   f. Save as: `certificate.p12` (to Desktop or Downloads)
+   
+   g. **Set a strong password** and remember it (you'll use this as `CSC_KEY_PASSWORD`)
+
+2. **Convert Certificate to Base64**
+
+   Open Terminal and run:
+   
+   ```bash
+   # If saved to Desktop:
+   base64 -i ~/Desktop/certificate.p12 -o ~/Desktop/certificate-base64.txt
+   
+   # If saved to Downloads:
+   base64 -i ~/Downloads/certificate.p12 -o ~/Downloads/certificate-base64.txt
+   ```
+
+3. **Configure GitHub Secrets**
+
+   Go to your GitHub repository: **Settings → Secrets and variables → Actions**
+   
+   Click **New repository secret** or update existing ones:
+
+   | Secret Name | Secret Value | How to Get It |
+   |-------------|--------------|---------------|
+   | `CSC_LINK` | Contents of `certificate-base64.txt` | Copy the **entire contents** of the base64 file (it will be a very long string) |
+   | `CSC_KEY_PASSWORD` | The password you set | The password you entered when exporting the .p12 file |
+   | `APPLE_ID` | Your Apple ID email | Already configured ✓ |
+   | `APPLE_APP_SPECIFIC_PASSWORD` | App-specific password | Already configured ✓ |
+   | `APPLE_TEAM_ID` | Your 10-character Team ID | Already configured ✓ |
+
+4. **Clean Up (IMPORTANT!)**
+
+   After uploading to GitHub, delete the certificate files for security:
+   
+   ```bash
+   rm ~/Desktop/certificate.p12 ~/Desktop/certificate-base64.txt
+   # or
+   rm ~/Downloads/certificate.p12 ~/Downloads/certificate-base64.txt
+   ```
+
+   **Never commit these files to git!**
 
 ## Building Without Notarization
 
