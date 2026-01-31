@@ -83,8 +83,8 @@ const VAD_MODEL = {
   id: 'silero-vad',
   name: 'Silero VAD',
   description: 'Voice Activity Detection model (required)',
-  size: '2.2 MB',
-  sizeBytes: 2284548,
+  size: '864 KB',
+  sizeBytes: 885098,
   url: 'https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v5.1.2.bin',
   filename: 'silero_vad.bin',
   required: true

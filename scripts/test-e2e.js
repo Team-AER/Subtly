@@ -49,14 +49,14 @@ const TEST_MODELS = {
     name: 'Silero VAD',
     url: 'https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v5.1.2.bin',
     filename: 'silero_vad.bin',
-    sizeBytes: 2284548
+    sizeBytes: 885098
   }
 };
 
 // Binary downloads
 function getBinaryUrls() {
   const ffmpegBase = 'https://github.com/eugeneware/ffmpeg-static/releases/download/b6.0';
-  
+
   if (IS_MAC && IS_ARM) {
     return {
       ffmpeg: {
@@ -103,7 +103,7 @@ function getBinaryUrls() {
       }
     };
   }
-  
+
   throw new Error(`Unsupported platform: ${PLATFORM}-${ARCH}`);
 }
 
@@ -230,7 +230,7 @@ async function extractZip(zipPath, destDir, binaryName) {
     execSync(`unzip -o "${zipPath}" -d "${destDir}"`, { stdio: 'inherit' });
   }
   await fsp.rm(zipPath, { force: true });
-  
+
   // Find and move the binary to the expected location
   const destBinary = path.join(destDir, binaryName);
   if (!fs.existsSync(destBinary)) {
@@ -246,7 +246,7 @@ async function extractZip(zipPath, destDir, binaryName) {
       }
     }
   }
-  
+
   if (!IS_WINDOWS && fs.existsSync(destBinary)) {
     await fsp.chmod(destBinary, 0o755);
   }
@@ -258,7 +258,7 @@ async function extractZip(zipPath, destDir, binaryName) {
 
 async function buildRuntime() {
   log('Building Rust runtime (release mode)...');
-  
+
   await runCommand('cargo', [
     'build',
     '--release',
@@ -429,9 +429,9 @@ async function downloadDependencies() {
   // Download binaries
   const binaries = getBinaryUrls();
   const ffmpegPath = await downloadBinary('ffmpeg', binaries.ffmpeg);
-  
+
   let whisperCliPath;
-  
+
   // Try to download or build whisper-cli
   if (binaries.whisper.buildFromSource) {
     // First check common locations
@@ -441,7 +441,7 @@ async function downloadDependencies() {
       '/usr/local/bin/whisper-cli',
       '/usr/bin/whisper-cli'
     ];
-    
+
     for (const p of possiblePaths) {
       if (fs.existsSync(p)) {
         whisperCliPath = p;
@@ -449,7 +449,7 @@ async function downloadDependencies() {
         break;
       }
     }
-    
+
     if (!whisperCliPath) {
       // Check if it's in PATH
       try {
@@ -471,11 +471,11 @@ async function downloadDependencies() {
     throw new Error('whisper-cli not found and could not be built');
   }
 
-  return { 
-    whisperModelPath, 
-    vadPath, 
-    ffmpegPath, 
-    whisperCliPath 
+  return {
+    whisperModelPath,
+    vadPath,
+    ffmpegPath,
+    whisperCliPath
   };
 }
 
@@ -524,7 +524,7 @@ class RuntimeClient {
       if (!line.trim()) continue;
       try {
         const message = JSON.parse(line);
-        
+
         // Handle events (logs from transcription)
         if (message.event) {
           if (message.event === 'log') {
@@ -537,7 +537,7 @@ class RuntimeClient {
         if (message.id && this.pending.has(message.id)) {
           const { resolve, reject } = this.pending.get(message.id);
           this.pending.delete(message.id);
-          
+
           if (message.error) {
             reject(new Error(message.error.message));
           } else {
@@ -554,7 +554,7 @@ class RuntimeClient {
     return new Promise((resolve, reject) => {
       const id = this.rpcCounter++;
       const request = JSON.stringify({ id, method, params });
-      
+
       this.pending.set(id, { resolve, reject });
       this.process.stdin.write(`${request}\n`);
     });
@@ -627,7 +627,7 @@ async function runTranscriptionTest(client, inputPath, deps) {
 
     const duration = ((Date.now() - startTime) / 1000).toFixed(1);
     success(`Completed ${filename} in ${duration}s`);
-    
+
     if (result.outputs && result.outputs.length > 0) {
       for (const output of result.outputs) {
         log(`  Output: ${output}`);
@@ -674,7 +674,7 @@ function detectGpuBackend() {
 
 async function main() {
   console.log('\n\x1b[1m━━━ AER Subtly E2E Test ━━━\x1b[0m\n');
-  
+
   const gpuInfo = detectGpuBackend();
   console.log(`Platform: ${PLATFORM}-${ARCH}`);
   console.log(`GPU Backend: ${gpuInfo.icon} ${gpuInfo.backend} - ${gpuInfo.description}\n`);
@@ -695,7 +695,7 @@ async function main() {
 
     // Step 3: Find sample files
     const sampleFiles = await findSampleFiles();
-    
+
     if (sampleFiles.length === 0) {
       log('No sample media files found in sample/ directory');
       log('Add .mp4, .mkv, .wav, .mp3 or other media files to sample/ to test transcription');
