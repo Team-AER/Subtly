@@ -90,9 +90,7 @@
       "gatekeeperAssess": false,
       "entitlements": "resources/entitlements.mac.plist",
       "entitlementsInherit": "resources/entitlements.mac.plist",
-      "notarize": {
-        "teamId": "${APPLE_TEAM_ID}"
-      }
+      "notarize": true
     },
     "win": {
       "target": [

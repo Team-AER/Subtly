@@ -170,6 +170,27 @@ Notarization typically takes 1-15 minutes. If it takes longer:
 - Check Apple's system status: https://developer.apple.com/system-status/
 - Wait and retry later if Apple's services are experiencing issues
 
+### "Unexpected token 'E', Error: int... is not valid JSON"
+
+This error occurs when the notarization tool receives an error message instead of JSON output.
+
+**Common causes:**
+- Missing or invalid environment variables (`APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`)
+- Incorrect Team ID format (should be 10-character alphanumeric)
+- Invalid app-specific password
+- Environment variables not properly exported in CI/CD
+
+**Solution:**
+1. Verify all three environment variables are set:
+   ```bash
+   echo $APPLE_ID
+   echo $APPLE_APP_SPECIFIC_PASSWORD  
+   echo $APPLE_TEAM_ID
+   ```
+2. Ensure Team ID is exactly 10 characters (no quotes, no spaces)
+3. Regenerate app-specific password if needed
+4. In CI/CD, verify secrets are properly configured in GitHub Actions
+
 ## References
 
 - [Apple Developer Documentation: Notarizing macOS Software](https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution)
