@@ -38,6 +38,13 @@ Without notarization, users see: "Apple could not verify 'Subtly.app' is free of
 
 ## Configuration
 
+Subtly uses electron-builder's `afterSign` hook to handle notarization. This is implemented in [`scripts/notarize.js`](../scripts/notarize.js).
+
+The notarization script automatically runs after signing and will:
+- ✅ Notarize the app if all required environment variables are present
+- ⏭️ Skip notarization if any credentials are missing (allows local development builds)
+- ❌ Fail the build if credentials are present but invalid
+
 ### Environment Variables
 
 Subtly uses the following environment variables for code signing and notarization:

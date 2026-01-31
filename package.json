@@ -36,6 +36,7 @@
     "zustand": "^4.5.2"
   },
   "devDependencies": {
+    "@electron/notarize": "^2.2.1",
     "@vitejs/plugin-react": "^4.3.1",
     "@testing-library/dom": "^10.4.0",
     "@testing-library/react": "^16.0.0",
@@ -90,7 +91,7 @@
       "gatekeeperAssess": false,
       "entitlements": "resources/entitlements.mac.plist",
       "entitlementsInherit": "resources/entitlements.mac.plist",
-      "notarize": true
+      "afterSign": "scripts/notarize.js"
     },
     "win": {
       "target": [
