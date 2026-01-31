@@ -10,12 +10,12 @@
 - Build outputs: `dist/` for app bundles, `release/` for electron-builder artifacts.
 
 ## Build, Test, and Development Commands
-- `yarn dev`: Start Vite + Electron for local development.
-- `yarn build`: Build the renderer and copy main/shared into `dist/`.
-- `yarn build:runtime`: Build the Rust sidecar (`runtime/gpu-runtime`).
-- `yarn pack`: Package the app for the current platform.
-- `yarn pack:all`: Build + package macOS/Windows/Linux in one command.
-- `yarn assets:download`: Download platform assets using `scripts/assets-manifest.json`.
+- `pnpm dev`: Start Vite + Electron for local development.
+- `pnpm build`: Build the renderer and copy main/shared into `dist/`.
+- `pnpm build:runtime`: Build the Rust sidecar (`runtime/gpu-runtime`).
+- `pnpm pack`: Package the app for the current platform.
+- `pnpm pack:all`: Build + package macOS/Windows/Linux in one command.
+- `pnpm assets:download`: Download platform assets using `scripts/assets-manifest.json`.
 
 ## Coding Style & Naming Conventions
 - JavaScript/JSX: 2-space indentation, single quotes, `camelCase` for variables/functions.
@@ -25,7 +25,7 @@
 
 ## Testing Guidelines
 - No automated tests are currently set up.
-- If you add tests, document the framework and add a `yarn test` script.
+- If you add tests, document the framework and add a `pnpm test` script.
 
 ## Commit & Pull Request Guidelines
 - There is no Git history yet, so no established commit style.

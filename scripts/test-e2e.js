@@ -2,7 +2,7 @@
 /**
  * End-to-end test script for the audio/video transcription pipeline.
  * 
- * Usage: yarn test
+ * Usage: pnpm test
  * 
  * This script:
  * 1. Builds the Rust runtime (release mode)

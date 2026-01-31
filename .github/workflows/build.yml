@@ -51,25 +51,28 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'yarn'
+          cache: 'pnpm'
+
+      - name: Install pnpm
+        run: npm install -g pnpm
 
       - name: Install dependencies
-        run: yarn install --frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       - name: Download assets
-        run: yarn assets:download
+        run: pnpm assets:download
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build Runtime
-        run: yarn build:runtime
+        run: pnpm build:runtime
         env:
           # On Windows, we might need to ensure build tools are available, but actions/runner usually has them.
           # We might need to handle specific linker flags if any, but standard cargo build is usually fine.
           RUST_BACKTRACE: 1
 
       - name: Build Renderer & Main
-        run: yarn build
+        run: pnpm build
 
       - name: Validate Apple Credentials (macOS only)
         if: matrix.os == 'macos-14'
@@ -99,7 +102,7 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
       - name: Package Application
-        run: yarn run pack
+        run: pnpm run pack
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # macOS code signing (only if secrets are set)
@@ -110,7 +113,7 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
-        # Note: yarn pack (electron-builder) will output to 'release' directory as per package.json
+        # Note: pnpm pack (electron-builder) will output to 'release' directory as per package.json
         # "directories": { "output": "release" }
 
       - name: Upload Artifacts

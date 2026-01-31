@@ -20,7 +20,7 @@ This architecture isolates the GPU-heavy inference tasks from the UI, preventing
 ## Building and Running
 
 ### Prerequisites
-*   **Node.js** (and `yarn`)
+*   **Node.js** (and `pnpm`)
 *   **Rust** (Cargo)
 *   **FFmpeg** (runtime dependency, usually expected in PATH or bundled)
 *   **Whisper CLI** (built from `whisper.cpp`, expected in `runtime/assets` or build dir)
@@ -29,55 +29,55 @@ This architecture isolates the GPU-heavy inference tasks from the UI, preventing
 
 **1. Setup & Installation**
 ```bash
-yarn install
+pnpm install
 ```
 
 **2. Development**
 Runs Vite (Renderer) and Electron (Main), spawning the Rust runtime in debug mode.
 ```bash
 # Build the runtime first
-yarn build:runtime
+pnpm build:runtime
 
 # Start the app
-yarn dev
+pnpm dev
 ```
-*Note: You can override the runtime path with `AER_RUNTIME_PATH=/path/to/runtime yarn dev`.*
+*Note: You can override the runtime path with `AER_RUNTIME_PATH=/path/to/runtime pnpm dev`.*
 
 **3. Building for Production**
 Builds the release version of the runtime and packages the Electron app.
 ```bash
 # Build Rust runtime (release)
-yarn build:runtime
+pnpm build:runtime
 
 # Build Renderer & Main
-yarn build
+pnpm build
 
 # Package for current OS
-yarn pack
+pnpm pack
 
 # Package for all platforms (requires cross-compilation env)
-yarn pack:all
+pnpm pack:all
 ```
 
 **4. Asset Management**
 Downloads platform-specific binaries/models (ffmpeg, whisper-cli, models) based on `scripts/assets-manifest.json`.
 ```bash
-yarn assets:download
+pnpm assets:download
 ```
 
 **5. Testing**
 ```bash
 # Run JS/React unit tests
-yarn test
+pnpm test
 
 # Run Rust runtime tests
-yarn test:rust
+pnpm test:rust
 
 # Run End-to-End tests
-yarn test:e2e
+pnpm test:e2e
 
 # Run all tests
-yarn test:all
+pnpm test:all
 ```
 
 ## Project Structure
