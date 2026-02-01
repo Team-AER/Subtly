@@ -59,7 +59,46 @@ async function buildAll() {
   await buildRenderer();
   await copyDir(srcMain, distDir, false);
   await copyDir(srcShared, path.join(distDir, 'shared'));
+  await copyWhisperCli();
 }
+
+async function copyWhisperCli() {
+  const isWindows = process.platform === 'win32';
+  const whisperCliName = isWindows ? 'whisper-cli.exe' : 'whisper-cli';
+  const ggmlMetalName = 'ggml-metal.metal';
+
+  const sourceWhisperCli = path.join(root, 'deps', 'whisper.cpp', 'build', 'bin', whisperCliName);
+  const sourceGgmlMetal = path.join(root, 'deps', 'whisper.cpp', 'build', 'bin', ggmlMetalName);
+  const destBinDir = path.join(root, 'resources', 'runtime-assets', 'bin');
+  const destWhisperCli = path.join(destBinDir, whisperCliName);
+  const destGgmlMetal = path.join(destBinDir, ggmlMetalName);
+
+  // Ensure destination directory exists
+  await fsp.mkdir(destBinDir, { recursive: true });
+
+  // Check if whisper-cli exists
+  if (!fs.existsSync(sourceWhisperCli)) {
+    console.warn(`Warning: whisper-cli not found at ${sourceWhisperCli}`);
+    console.warn('Skipping whisper-cli copy. Build whisper.cpp first if needed.');
+    return;
+  }
+
+  // Copy whisper-cli
+  await fsp.copyFile(sourceWhisperCli, destWhisperCli);
+  console.log(`Copied whisper-cli to ${destWhisperCli}`);
+
+  // Set executable permissions on macOS/Linux
+  if (!isWindows) {
+    await fsp.chmod(destWhisperCli, 0o755);
+  }
+
+  // Copy ggml-metal.metal if it exists (required on macOS)
+  if (fs.existsSync(sourceGgmlMetal)) {
+    await fsp.copyFile(sourceGgmlMetal, destGgmlMetal);
+    console.log(`Copied ggml-metal.metal to ${destGgmlMetal}`);
+  }
+}
+
 
 buildAll().catch((err) => {
   console.error(err);

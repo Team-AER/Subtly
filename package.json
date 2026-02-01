@@ -10,7 +10,7 @@
   "scripts": {
     "dev": "node scripts/dev.js",
     "build": "node scripts/build.js",
-    "pack": "electron-builder",
+    "pack": "node scripts/build.js && electron-builder",
     "pack:all": "pnpm build:runtime && pnpm build && electron-builder -mwl",
     "assets:download": "node scripts/download-assets.js",
     "assets:sync": "node scripts/sync-assets.js",

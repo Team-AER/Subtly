@@ -11,7 +11,7 @@ const WHISPER_MODELS = [
     sizeBytes: 601976064,
     url: 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin',
     filename: 'ggml-large-v3-turbo-q5_0.bin',
-    recommended: true
+    recommended: false
   },
   {
     id: 'large-v3-turbo',
@@ -21,7 +21,7 @@ const WHISPER_MODELS = [
     sizeBytes: 1624555275,
     url: 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin',
     filename: 'ggml-large-v3-turbo.bin',
-    recommended: false
+    recommended: true
   },
   {
     id: 'large-v3',
