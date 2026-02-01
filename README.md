@@ -20,13 +20,13 @@ cargo build --manifest-path runtime/gpu-runtime/Cargo.toml
 2) Install dependencies
 
 ```
-yarn install
+pnpm install
 ```
 
 3) Run the app (Vite + Electron)
 
 ```
-yarn dev
+pnpm dev
 ```
 
 The Electron main process will spawn the runtime from:
@@ -38,7 +38,7 @@ The Electron main process will spawn the runtime from:
 You can override the path with:
 
 ```
-AER_RUNTIME_PATH=/absolute/path/to/gpu-runtime yarn dev
+AER_RUNTIME_PATH=/absolute/path/to/gpu-runtime pnpm dev
 ```
 
 ## Packaging (per platform)
@@ -46,16 +46,16 @@ AER_RUNTIME_PATH=/absolute/path/to/gpu-runtime yarn dev
 Build the native runtime first, then package the Electron app:
 
 ```
-yarn build:runtime
-yarn build
-yarn pack
+pnpm build:runtime
+pnpm build
+pnpm pack
 
 ## Packaging (all platforms, single command)
 
 Build runtime + renderer and package macOS, Windows, and Linux in one shot:
 
 ```
-yarn pack:all
+pnpm pack:all
 ```
 
 Notes:
@@ -125,7 +125,7 @@ During packaging, electron-builder copies them into `runtime/assets` next to the
 Use the manifest-driven downloader to fetch binaries/models per platform:
 
 ```
-yarn assets:download
+pnpm assets:download
 ```
 
 Edit `scripts/assets-manifest.json` with platform-specific URLs and SHA256 values. The script verifies checksums and sets executable bits on macOS/Linux.
@@ -151,23 +151,23 @@ wgpu uses Metal on macOS. This preserves the "GPU acceleration everywhere" goal,
 JS/renderer/main/preload coverage is enforced at 100% with Vitest + React Testing Library (jsdom):
 
 ```
-yarn test
+pnpm test
 ```
 
 Rust runtime coverage is enforced at 100% via `cargo llvm-cov` (install once with `cargo install cargo-llvm-cov`):
 
 ```
-yarn test:rust
+pnpm test:rust
 ```
 
 Run both in one go:
 
 ```
-yarn test:all
+pnpm test:all
 ```
 
 The existing end-to-end pipeline check is still available:
 
 ```
-yarn test:e2e
+pnpm test:e2e
 ```

@@ -72,9 +72,9 @@ export CSC_LINK="/path/to/certificate.p12"
 export CSC_KEY_PASSWORD="your-p12-password"
 
 # Build and package
-yarn build:runtime
-yarn build
-yarn pack
+pnpm build:runtime
+pnpm build
+pnpm pack
 ```
 
 > **Note:** If you have the Developer ID certificate in your Keychain and it's valid, electron-builder will automatically find and use it. You only need `CSC_LINK` if you want to specify a specific certificate file.
@@ -158,9 +158,9 @@ If you want to build locally without notarization (e.g., for development):
 
 ```bash
 # Simply don't set the APPLE_* environment variables
-yarn build:runtime
-yarn build
-yarn pack
+pnpm build:runtime
+pnpm build
+pnpm pack
 ```
 
 The build will succeed, but the app won't be notarized. You can still open it locally by right-clicking and selecting "Open" (bypasses Gatekeeper for the first launch).

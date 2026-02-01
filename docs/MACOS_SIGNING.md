@@ -65,15 +65,15 @@ In your GitHub repository settings, add these secrets:
 export CSC_LINK=/path/to/certificate.p12
 export CSC_KEY_PASSWORD=your-password
 
-yarn build:runtime
-yarn build
-yarn pack
+pnpm build:runtime
+pnpm build
+pnpm pack
 ```
 
 ### Build without signing (for local dev):
 ```bash
 export CSC_IDENTITY_AUTO_DISCOVERY=false
-yarn pack
+pnpm pack
 ```
 
 ## How It Works
@@ -106,7 +106,7 @@ If you don't have an Apple Developer account, you can use ad-hoc signing locally
 ```bash
 # Build unsigned
 export CSC_IDENTITY_AUTO_DISCOVERY=false
-yarn pack
+pnpm pack
 
 # Ad-hoc sign (won't work for distribution, only local testing)
 codesign --force --deep --sign - release/mac-arm64/Subtly.app

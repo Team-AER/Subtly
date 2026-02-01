@@ -47,59 +47,88 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install pnpm
+        run: npm install -g pnpm
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'yarn'
+          cache: 'pnpm'
 
       - name: Install dependencies
-        run: yarn install --frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       - name: Download assets
-        run: yarn assets:download
+        run: pnpm assets:download
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build Runtime
-        run: yarn build:runtime
+        run: pnpm build:runtime
         env:
           # On Windows, we might need to ensure build tools are available, but actions/runner usually has them.
           # We might need to handle specific linker flags if any, but standard cargo build is usually fine.
           RUST_BACKTRACE: 1
 
       - name: Build Renderer & Main
-        run: yarn build
+        run: pnpm build
 
-      - name: Validate Apple Credentials (macOS only)
+      - name: Validate macOS Signing & Notarization Secrets
         if: matrix.os == 'macos-14'
         run: |
-          if [ -n "$APPLE_ID" ] && [ -n "$APPLE_APP_SPECIFIC_PASSWORD" ] && [ -n "$APPLE_TEAM_ID" ]; then
-            echo "✓ Apple credentials are set"
-            echo "  APPLE_ID: ${APPLE_ID}"
-            echo "  APPLE_TEAM_ID: ${APPLE_TEAM_ID}"
-            echo "  Testing authentication with Apple..."
-            
-            # Test notarytool authentication
-            xcrun notarytool history --apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$APPLE_TEAM_ID" 2>&1 | head -5 || {
-              echo "❌ ERROR: Failed to authenticate with Apple notarization service"
-              echo "Please verify:"
-              echo "  1. APPLE_ID is correct"
-              echo "  2. APPLE_APP_SPECIFIC_PASSWORD is valid (generate new one at appleid.apple.com)"
-              echo "  3. APPLE_TEAM_ID is exactly 10 characters"
-              exit 1
-            }
-            echo "✓ Apple authentication successful"
-          else
-            echo "⚠ Apple credentials not set - notarization will be skipped"
+          missing=0
+
+          if [ -z "$CSC_LINK" ]; then
+            echo "❌ Missing CSC_LINK (base64-encoded .p12 signing cert)"
+            missing=1
           fi
+          if [ -z "$CSC_KEY_PASSWORD" ]; then
+            echo "❌ Missing CSC_KEY_PASSWORD (certificate password)"
+            missing=1
+          fi
+          if [ -z "$APPLE_ID" ]; then
+            echo "❌ Missing APPLE_ID"
+            missing=1
+          fi
+          if [ -z "$APPLE_APP_SPECIFIC_PASSWORD" ]; then
+            echo "❌ Missing APPLE_APP_SPECIFIC_PASSWORD"
+            missing=1
+          fi
+          if [ -z "$APPLE_TEAM_ID" ]; then
+            echo "❌ Missing APPLE_TEAM_ID"
+            missing=1
+          fi
+
+          if [ "$missing" -eq 1 ]; then
+            echo "❌ macOS signing/notarization secrets are required for a signed build."
+            exit 1
+          fi
+
+          echo "✓ macOS signing and notarization secrets are set"
+          echo "  APPLE_ID: ${APPLE_ID}"
+          echo "  APPLE_TEAM_ID: ${APPLE_TEAM_ID}"
+          echo "  Testing authentication with Apple..."
+
+          # Test notarytool authentication
+          xcrun notarytool history --apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$APPLE_TEAM_ID" 2>&1 | head -5 || {
+            echo "❌ ERROR: Failed to authenticate with Apple notarization service"
+            echo "Please verify:"
+            echo "  1. APPLE_ID is correct"
+            echo "  2. APPLE_APP_SPECIFIC_PASSWORD is valid (generate new one at appleid.apple.com)"
+            echo "  3. APPLE_TEAM_ID is exactly 10 characters"
+            exit 1
+          }
+          echo "✓ Apple authentication successful"
         env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
       - name: Package Application
-        run: yarn run pack
+        run: pnpm run pack
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # macOS code signing (only if secrets are set)
@@ -110,7 +139,7 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
-        # Note: yarn pack (electron-builder) will output to 'release' directory as per package.json
+        # Note: pnpm pack (electron-builder) will output to 'release' directory as per package.json
         # "directories": { "output": "release" }
 
       - name: Upload Artifacts

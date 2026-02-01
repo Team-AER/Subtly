@@ -10,14 +10,14 @@
   "scripts": {
     "dev": "node scripts/dev.js",
     "build": "node scripts/build.js",
-    "pack": "electron-builder",
-    "pack:all": "yarn build:runtime && yarn build && electron-builder -mwl",
+    "pack": "node scripts/build.js && electron-builder",
+    "pack:all": "pnpm build:runtime && pnpm build && electron-builder -mwl",
     "assets:download": "node scripts/download-assets.js",
     "assets:sync": "node scripts/sync-assets.js",
-    "aio:setup": "yarn assets:download && yarn assets:sync",
+    "aio:setup": "pnpm assets:download && pnpm assets:sync",
     "build:runtime": "cargo build --release --manifest-path runtime/gpu-runtime/Cargo.toml",
     "test": "vitest run --coverage",
-    "test:all": "yarn test && yarn test:rust && yarn test:e2e",
+    "test:all": "pnpm test && pnpm test:rust && pnpm test:e2e",
     "test:e2e": "node scripts/test-e2e.js",
     "test:rust": "LLVM_COV=$(xcrun --find llvm-cov) LLVM_PROFDATA=$(xcrun --find llvm-profdata) cargo llvm-cov --manifest-path runtime/gpu-runtime/Cargo.toml --fail-under-lines 100 --fail-under-functions 100 --fail-under-regions 99.7 --ignore-filename-regex 'rustc'",
     "test:watch": "vitest",
@@ -91,8 +91,7 @@
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "entitlements": "resources/entitlements.mac.plist",
-      "entitlementsInherit": "resources/entitlements.mac.plist",
-      "notarize": true
+      "entitlementsInherit": "resources/entitlements.mac.plist"
     },
     "win": {
       "target": [
