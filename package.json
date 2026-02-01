@@ -82,6 +82,7 @@
         "to": "runtime/assets"
       }
     ],
+    "afterSign": "scripts/notarize.js",
     "mac": {
       "target": [
         "dmg"
