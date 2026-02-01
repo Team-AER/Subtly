@@ -12,45 +12,48 @@ const { notarize } = require('@electron/notarize');
  * - APPLE_TEAM_ID: Your 10-character Apple Developer Team ID
  */
 exports.default = async function notarizeApp(context) {
-  const { electronPlatformName, appOutDir } = context;
+    const { electronPlatformName, appOutDir } = context;
 
-  // Only notarize macOS builds
-  if (electronPlatformName !== 'darwin') {
-    console.log('  • Skipping notarization (not macOS)');
-    return;
-  }
+    // Only notarize macOS builds
+    if (electronPlatformName !== 'darwin') {
+        console.log('  • Skipping notarization (not macOS)');
+        return;
+    }
 
-  // Check if all required environment variables are present
-  const appleId = process.env.APPLE_ID;
-  const appleIdPassword = process.env.APPLE_APP_SPECIFIC_PASSWORD;
-  const teamId = process.env.APPLE_TEAM_ID;
+    // Check if all required environment variables are present
+    const appleId = process.env.APPLE_ID;
+    const appleIdPassword = process.env.APPLE_APP_SPECIFIC_PASSWORD;
+    const teamId = process.env.APPLE_TEAM_ID;
 
-  if (!appleId || !appleIdPassword || !teamId) {
-    console.log('  • Skipping notarization (missing credentials)');
-    console.log(`    APPLE_ID: ${appleId ? '✓' : '✗'}`);
-    console.log(`    APPLE_APP_SPECIFIC_PASSWORD: ${appleIdPassword ? '✓' : '✗'}`);
-    console.log(`    APPLE_TEAM_ID: ${teamId ? '✓' : '✗'}`);
-    return;
-  }
+    if (!appleId || !appleIdPassword || !teamId) {
+        console.log('  • Skipping notarization (missing credentials)');
+        console.log(`    APPLE_ID: ${appleId ? '✓' : '✗'}`);
+        console.log(`    APPLE_APP_SPECIFIC_PASSWORD: ${appleIdPassword ? '✓' : '✗'}`);
+        console.log(`    APPLE_TEAM_ID: ${teamId ? '✓' : '✗'}`);
+        return;
+    }
 
-  const appName = context.packager.appInfo.productFilename;
-  const appPath = `${appOutDir}/${appName}.app`;
+    const appName = context.packager.appInfo.productFilename;
+    const appPath = `${appOutDir}/${appName}.app`;
+    const appBundleId = context.packager.appInfo.id;
 
-  console.log(`  • Notarizing ${appName}.app`);
-  console.log(`    App path: ${appPath}`);
-  console.log(`    Apple ID: ${appleId}`);
-  console.log(`    Team ID: ${teamId}`);
+    console.log(`  • Notarizing ${appName}.app`);
+    console.log(`    App path: ${appPath}`);
+    console.log(`    App Bundle ID: ${appBundleId}`);
+    console.log(`    Apple ID: ${appleId}`);
+    console.log(`    Team ID: ${teamId}`);
 
-  try {
-    await notarize({
-      appPath,
-      appleId,
-      appleIdPassword,
-      teamId,
-    });
-    console.log(`  ✓ Successfully notarized ${appName}.app`);
-  } catch (error) {
-    console.error(`  ✗ Notarization failed: ${error.message}`);
-    throw error;
-  }
+    try {
+        await notarize({
+            appPath,
+            appBundleId,
+            appleId,
+            appleIdPassword,
+            teamId,
+        });
+        console.log(`  ✓ Successfully notarized ${appName}.app`);
+    } catch (error) {
+        console.error(`  ✗ Notarization failed: ${error.message}`);
+        throw error;
+    }
 };

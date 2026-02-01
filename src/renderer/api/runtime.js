@@ -12,7 +12,10 @@ const deviceSchema = z.object({
 
 const pingSchema = z.object({
   message: z.string(),
-  backend: z.string()
+  gpu_backend: z.string(),
+  gpu_enabled: z.boolean().optional(),
+  gpu_name: z.string().optional().nullable(),
+  gpu_type: z.string().optional()
 });
 
 const listDevicesSchema = z.object({
