@@ -59,6 +59,34 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Initialize whisper.cpp submodule
+        run: git submodule update --init --recursive deps/whisper.cpp
+
+      - name: Build whisper-cli (macOS/Linux)
+        if: matrix.os != 'windows-2022'
+        run: |
+          cd deps/whisper.cpp
+          mkdir -p build && cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release -DGGML_VULKAN=1 -DWHISPER_BUILD_EXAMPLES=ON -DWHISPER_BUILD_TESTS=OFF
+          cmake --build . --config Release --target whisper-cli -j $(nproc 2>/dev/null || sysctl -n hw.ncpu)
+          cd ../..
+          mkdir -p resources/runtime-assets/bin
+          cp deps/whisper.cpp/build/bin/whisper-cli resources/runtime-assets/bin/
+          chmod +x resources/runtime-assets/bin/whisper-cli
+
+      - name: Build whisper-cli (Windows)
+        if: matrix.os == 'windows-2022'
+        shell: pwsh
+        run: |
+          cd deps/whisper.cpp
+          mkdir -Force build | Out-Null
+          cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release -DGGML_VULKAN=1 -DWHISPER_BUILD_EXAMPLES=ON -DWHISPER_BUILD_TESTS=OFF
+          cmake --build . --config Release --target whisper-cli -j $env:NUMBER_OF_PROCESSORS
+          cd ../..
+          mkdir -Force resources/runtime-assets/bin | Out-Null
+          cp deps/whisper.cpp/build/bin/Release/whisper-cli.exe resources/runtime-assets/bin/
+
       - name: Download assets
         run: pnpm assets:download
         env:
