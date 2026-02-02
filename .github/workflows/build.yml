@@ -32,7 +32,7 @@ jobs:
         if: matrix.os == 'ubuntu-22.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev libudev-dev libvulkan-dev vulkan-tools libshaderc-dev
+          sudo apt-get install -y libasound2-dev libudev-dev libxcb-xinput0 libxcb-xinerama0 libxcb-cursor-dev
       - name: Install system dependencies (macOS)
         if: matrix.os == 'macos-14'
         run: |
@@ -42,7 +42,10 @@ jobs:
         if: matrix.os == 'windows-2022'
         shell: pwsh
         run: |
-          choco install -y cmake pkgconfiglite vulkan-sdk --allow-empty-checksums
+          choco install -y cmake pkgconfiglite --allow-empty-checksums
+          $installer = Join-Path $env:RUNNER_TEMP "vulkan_sdk.exe"
+          Invoke-WebRequest -Uri "https://sdk.lunarg.com/sdk/download/latest/windows/vulkan_sdk.exe" -OutFile $installer
+          & $installer --accept-licenses --default-answer --confirm-command install
           $vk = $env:VULKAN_SDK
           if (-not $vk) {
             $vk = (Get-ChildItem "C:\\VulkanSDK" -Directory | Sort-Object Name -Descending | Select-Object -First 1).FullName
@@ -53,6 +56,16 @@ jobs:
           "VULKAN_SDK=$vk" | Out-File -FilePath $env:GITHUB_ENV -Append
           "$vk\\Bin" | Out-File -FilePath $env:GITHUB_PATH -Append
           "$vk\\Bin32" | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      - name: Install Vulkan SDK (Linux)
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          SDK_VERSION=$(curl -s https://vulkan.lunarg.com/sdk/latest/linux.txt)
+          curl -L -o vulkan_sdk.tar.xz "https://sdk.lunarg.com/sdk/download/${SDK_VERSION}/linux/vulkan_sdk.tar.xz"
+          tar xf vulkan_sdk.tar.xz
+          SDK_DIR="${PWD}/${SDK_VERSION}/x86_64"
+          echo "VULKAN_SDK=${SDK_DIR}" >> "$GITHUB_ENV"
+          echo "${SDK_DIR}/bin" >> "$GITHUB_PATH"
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
