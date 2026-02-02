@@ -95,8 +95,22 @@ async function copyWhisperCli() {
   const whisperCliName = isWindows ? 'whisper-cli.exe' : 'whisper-cli';
   const ggmlMetalName = 'ggml-metal.metal';
 
-  const sourceWhisperCli = path.join(root, 'deps', 'whisper.cpp', 'build', 'bin', whisperCliName);
-  const sourceGgmlMetal = path.join(root, 'deps', 'whisper.cpp', 'build', 'bin', ggmlMetalName);
+  const whisperCliCandidates = isWindows
+    ? [
+        path.join(root, 'deps', 'whisper.cpp', 'build', 'bin', 'Release', whisperCliName),
+        path.join(root, 'deps', 'whisper.cpp', 'build', 'bin', whisperCliName)
+      ]
+    : [
+        path.join(root, 'deps', 'whisper.cpp', 'build', 'bin', whisperCliName),
+        path.join(root, 'deps', 'whisper.cpp', 'build', 'bin', 'Release', whisperCliName)
+      ];
+
+  const sourceWhisperCli = whisperCliCandidates.find((candidate) => fs.existsSync(candidate));
+  const sourceGgmlMetalCandidates = [
+    path.join(root, 'deps', 'whisper.cpp', 'build', 'bin', ggmlMetalName),
+    path.join(root, 'deps', 'whisper.cpp', 'build', 'bin', 'Release', ggmlMetalName)
+  ];
+  const sourceGgmlMetal = sourceGgmlMetalCandidates.find((candidate) => fs.existsSync(candidate));
   const destBinDir = path.join(root, 'resources', 'runtime-assets', 'bin');
   const destWhisperCli = path.join(destBinDir, whisperCliName);
   const destGgmlMetal = path.join(destBinDir, ggmlMetalName);
@@ -105,8 +119,8 @@ async function copyWhisperCli() {
   await fsp.mkdir(destBinDir, { recursive: true });
 
   // Check if whisper-cli exists
-  if (!fs.existsSync(sourceWhisperCli)) {
-    throw new Error(`whisper-cli not found at ${sourceWhisperCli}`);
+  if (!sourceWhisperCli) {
+    throw new Error(`whisper-cli not found. Checked: ${whisperCliCandidates.join(', ')}`);
   }
 
   // Copy whisper-cli
@@ -119,7 +133,7 @@ async function copyWhisperCli() {
   }
 
   // Copy ggml-metal.metal if it exists (required on macOS)
-  if (fs.existsSync(sourceGgmlMetal)) {
+  if (sourceGgmlMetal) {
     await fsp.copyFile(sourceGgmlMetal, destGgmlMetal);
     console.log(`Copied ggml-metal.metal to ${destGgmlMetal}`);
   }

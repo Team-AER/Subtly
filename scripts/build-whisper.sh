@@ -44,13 +44,37 @@ if is_windows; then
   whisper_bin_name="whisper-cli.exe"
 fi
 
-built_binary="$WHISPER_CPP_BUILD_DIR/bin/$whisper_bin_name"
+whisper_bin_candidates=()
+if is_windows; then
+  whisper_bin_candidates+=(
+    "$WHISPER_CPP_BUILD_DIR/bin/Release/$whisper_bin_name"
+    "$WHISPER_CPP_BUILD_DIR/bin/$whisper_bin_name"
+  )
+else
+  whisper_bin_candidates+=(
+    "$WHISPER_CPP_BUILD_DIR/bin/$whisper_bin_name"
+    "$WHISPER_CPP_BUILD_DIR/bin/Release/$whisper_bin_name"
+  )
+fi
+
+find_existing_binary() {
+  local candidate
+  for candidate in "${whisper_bin_candidates[@]}"; do
+    if [[ -f "$candidate" ]]; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+built_binary=""
 
 if [[ -n "${WHISPER_CPP_FORCE_REBUILD:-}" ]]; then
   rm -rf "$WHISPER_CPP_BUILD_DIR"
 fi
 
-if [[ -f "$built_binary" ]]; then
+if built_binary="$(find_existing_binary)"; then
   echo "whisper.cpp already built at $built_binary"
   exit 0
 fi
@@ -90,8 +114,9 @@ cmake "${cmake_args[@]}"
 echo "Building whisper.cpp..."
 cmake --build "$WHISPER_CPP_BUILD_DIR" --config Release -j "$(cpu_count)"
 
-if [[ ! -f "$built_binary" ]]; then
-  echo "Error: whisper-cli not found at $built_binary" >&2
+if ! built_binary="$(find_existing_binary)"; then
+  echo "Error: whisper-cli not found. Checked:" >&2
+  printf '  - %s\n' "${whisper_bin_candidates[@]}" >&2
   exit 1
 fi
 
