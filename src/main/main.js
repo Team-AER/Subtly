@@ -216,6 +216,13 @@ function deleteModel(modelId) {
 
 function startRuntime() {
   const runtimePath = resolveRuntimePath();
+  if (!fs.existsSync(runtimePath)) {
+    dialog.showErrorBox(
+      'Runtime missing',
+      `Runtime binary not found at ${runtimePath}. Build it with pnpm build:runtime.`
+    );
+    return;
+  }
   runtimeProcess = spawn(runtimePath, [], {
     stdio: ['pipe', 'pipe', 'pipe']
   });
@@ -261,7 +268,12 @@ function startRuntime() {
 }
 
 function sendRpc(method, params = {}) {
-  if (!runtimeProcess) {
+  if (!runtimeProcess || runtimeProcess.exitCode !== null) {
+    if (shouldAutoStart) {
+      startRuntime();
+    }
+  }
+  if (!runtimeProcess || runtimeProcess.exitCode !== null) {
     throw new Error('Runtime process is not running');
   }
 

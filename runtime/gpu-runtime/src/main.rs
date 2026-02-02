@@ -674,13 +674,44 @@ fn run_command(
     let mut command = Command::new(program);
     command.args(args);
     command.stdout(std::process::Stdio::null());
-    command.stderr(std::process::Stdio::null());
+    command.stderr(std::process::Stdio::piped());
+
     if let Some(value) = vk_icd_filenames {
         command.env("VK_ICD_FILENAMES", value);
     }
-    let status = command.status()?;
-    if !status.success() {
-        return Err(anyhow!("Command failed: {}", rendered));
+
+    let program_path = Path::new(program);
+    if let Some(parent) = program_path.parent() {
+        if !parent.as_os_str().is_empty() {
+            command.current_dir(parent);
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let is_whisper = program_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .map(|name| name == "whisper-cli")
+            .unwrap_or(false);
+        if is_whisper {
+            if let Some(parent) = program_path.parent() {
+                let metal_source = parent.join("ggml-metal.metal");
+                if metal_source.exists() {
+                    command.env("GGML_METAL_PATH_RESOURCES", parent);
+                }
+            }
+        }
+    }
+
+    let output = command.output()?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stderr = stderr.trim();
+        if stderr.is_empty() {
+            return Err(anyhow!("Command failed: {}", rendered));
+        }
+        return Err(anyhow!("Command failed: {} ({})", rendered, stderr));
     }
     Ok(())
 }
