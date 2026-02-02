@@ -54,6 +54,32 @@ async function buildRenderer() {
   }
 }
 
+function buildWhisperCpp() {
+  const scriptPath = path.join(root, 'scripts', 'build-whisper.sh');
+  if (!fs.existsSync(scriptPath)) {
+    throw new Error(`Whisper build script not found at ${scriptPath}`);
+  }
+
+  const result = spawnSync('bash', [scriptPath], {
+    cwd: root,
+    stdio: 'inherit',
+    env: {
+      ...process.env
+    }
+  });
+
+  if (result.error) {
+    if (result.error.code === 'ENOENT') {
+      console.error('bash not found. Install bash (macOS/Linux or Git Bash on Windows) to build whisper.cpp.');
+    }
+    throw result.error;
+  }
+
+  if (result.status !== 0) {
+    process.exit(result.status ?? 1);
+  }
+}
+
 async function buildAll() {
   await fsp.mkdir(distDir, { recursive: true });
   await buildRenderer();
@@ -63,6 +89,8 @@ async function buildAll() {
 }
 
 async function copyWhisperCli() {
+  buildWhisperCpp();
+
   const isWindows = process.platform === 'win32';
   const whisperCliName = isWindows ? 'whisper-cli.exe' : 'whisper-cli';
   const ggmlMetalName = 'ggml-metal.metal';
@@ -78,9 +106,7 @@ async function copyWhisperCli() {
 
   // Check if whisper-cli exists
   if (!fs.existsSync(sourceWhisperCli)) {
-    console.warn(`Warning: whisper-cli not found at ${sourceWhisperCli}`);
-    console.warn('Skipping whisper-cli copy. Build whisper.cpp first if needed.');
-    return;
+    throw new Error(`whisper-cli not found at ${sourceWhisperCli}`);
   }
 
   // Copy whisper-cli
