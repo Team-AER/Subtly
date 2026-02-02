@@ -31,6 +31,14 @@ is_windows() {
   return 1
 }
 
+is_macos() {
+  [[ "$(uname -s)" == "Darwin" ]]
+}
+
+is_linux() {
+  [[ "$(uname -s)" == "Linux" ]]
+}
+
 whisper_bin_name="whisper-cli"
 if is_windows; then
   whisper_bin_name="whisper-cli.exe"
@@ -70,8 +78,10 @@ cmake_args=(
   -DCMAKE_BUILD_TYPE=Release
 )
 
-if [[ "$(uname -s)" == "Darwin" ]]; then
+if is_macos; then
   cmake_args+=("-DGGML_METAL=ON")
+elif is_windows || is_linux; then
+  cmake_args+=("-DGGML_VULKAN=ON")
 fi
 
 echo "Configuring whisper.cpp..."

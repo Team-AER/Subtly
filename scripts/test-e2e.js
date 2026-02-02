@@ -380,6 +380,8 @@ async function buildWhisperCpp() {
 
   if (IS_MAC) {
     cmakeArgs.push('-DGGML_METAL=ON');
+  } else if (IS_LINUX || IS_WINDOWS) {
+    cmakeArgs.push('-DGGML_VULKAN=ON');
   }
 
   await runCommand('cmake', cmakeArgs, { cwd: whisperDir });
