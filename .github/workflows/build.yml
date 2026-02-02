@@ -32,7 +32,7 @@ jobs:
         if: matrix.os == 'ubuntu-22.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev libudev-dev
+          sudo apt-get install -y libasound2-dev libudev-dev libvulkan-dev vulkan-tools libshaderc-dev
       - name: Install system dependencies (macOS)
         if: matrix.os == 'macos-14'
         run: |
@@ -42,7 +42,17 @@ jobs:
         if: matrix.os == 'windows-2022'
         shell: pwsh
         run: |
-          choco install -y cmake pkgconfiglite --allow-empty-checksums
+          choco install -y cmake pkgconfiglite vulkan-sdk --allow-empty-checksums
+          $vk = $env:VULKAN_SDK
+          if (-not $vk) {
+            $vk = (Get-ChildItem "C:\\VulkanSDK" -Directory | Sort-Object Name -Descending | Select-Object -First 1).FullName
+          }
+          if (-not $vk) {
+            throw "Vulkan SDK not found after install"
+          }
+          "VULKAN_SDK=$vk" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "$vk\\Bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+          "$vk\\Bin32" | Out-File -FilePath $env:GITHUB_PATH -Append
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
