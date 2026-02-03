@@ -10,8 +10,8 @@
   "scripts": {
     "dev": "node scripts/dev.js",
     "build": "node scripts/build.js",
-    "pack": "node scripts/build.js && electron-builder",
-    "pack:all": "pnpm build:runtime && pnpm build && electron-builder -mwl",
+    "pack": "pnpm assets:download && node scripts/build.js && electron-builder",
+    "pack:all": "pnpm assets:download && pnpm build:runtime && pnpm build && electron-builder -mwl",
     "assets:download": "node scripts/download-assets.js",
     "assets:sync": "node scripts/sync-assets.js",
     "aio:setup": "pnpm assets:download && pnpm assets:sync",
@@ -98,6 +98,9 @@
       "target": [
         "nsis"
       ]
+    },
+    "nsis": {
+      "include": "resources/installer.nsh"
     },
     "linux": {
       "maintainer": "Prakhar Shukla <prafiles@gmail.com>",
