@@ -163,6 +163,18 @@ async function copyWhisperCli() {
     await fsp.chmod(destWhisperCli, 0o755);
   }
 
+  if (isWindows) {
+    const sourceDir = path.dirname(sourceWhisperCli);
+    const entries = await fsp.readdir(sourceDir);
+    const dlls = entries.filter((entry) => entry.toLowerCase().endsWith('.dll'));
+    for (const dll of dlls) {
+      const src = path.join(sourceDir, dll);
+      const dest = path.join(destBinDir, dll);
+      await fsp.copyFile(src, dest);
+      console.log(`Copied ${dll} to ${dest}`);
+    }
+  }
+
   // Copy ggml-metal.metal if it exists (required on macOS)
   if (sourceGgmlMetal) {
     await fsp.copyFile(sourceGgmlMetal, destGgmlMetal);
