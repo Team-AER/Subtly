@@ -75,17 +75,8 @@ if [[ -n "${WHISPER_CPP_FORCE_REBUILD:-}" ]]; then
 fi
 
 if built_binary="$(find_existing_binary)"; then
-  if is_windows; then
-    static_marker="$WHISPER_CPP_BUILD_DIR/.aer-static"
-    if [[ -f "$static_marker" ]]; then
-      echo "whisper.cpp already built at $built_binary"
-      exit 0
-    fi
-    echo "whisper.cpp already built but missing static marker; rebuilding..."
-  else
-    echo "whisper.cpp already built at $built_binary"
-    exit 0
-  fi
+  echo "whisper.cpp already built at $built_binary"
+  exit 0
 fi
 
 mkdir -p "$(dirname "$WHISPER_CPP_DIR")"
@@ -123,6 +114,12 @@ if is_windows; then
     "-DBUILD_SHARED_LIBS=OFF"
     "-DGGML_STATIC=ON"
     "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded"
+    # Build a portable binary to avoid illegal instruction crashes on older CPUs.
+    "-DGGML_NATIVE=OFF"
+    "-DGGML_SSE42=OFF"
+    "-DGGML_AVX=OFF"
+    "-DGGML_AVX2=OFF"
+    "-DGGML_BMI2=OFF"
   )
 fi
 
@@ -139,7 +136,3 @@ if ! built_binary="$(find_existing_binary)"; then
 fi
 
 echo "whisper.cpp build output: $built_binary"
-
-if is_windows; then
-  touch "$WHISPER_CPP_BUILD_DIR/.aer-static"
-fi
