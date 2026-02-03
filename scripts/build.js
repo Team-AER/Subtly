@@ -88,10 +88,41 @@ async function buildAll() {
   await copyWhisperCli();
 }
 
+async function findFiles(dir, predicate) {
+  const results = [];
+  const entries = await fsp.readdir(dir, { withFileTypes: true });
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      results.push(...await findFiles(fullPath, predicate));
+    } else if (predicate(entry.name, fullPath)) {
+      results.push(fullPath);
+    }
+  }
+  return results;
+}
+
+function ensureLoaderPathRpath(targetPath) {
+  const result = spawnSync('install_name_tool', ['-add_rpath', '@loader_path', targetPath], {
+    stdio: 'pipe'
+  });
+  if (result.status === 0) {
+    return;
+  }
+
+  const stderr = String(result.stderr || '');
+  if (stderr.includes('already has rpath') || stderr.includes('file already has LC_RPATH')) {
+    return;
+  }
+
+  throw new Error(`install_name_tool failed for ${targetPath}: ${stderr || result.error || 'unknown error'}`);
+}
+
 async function copyWhisperCli() {
   buildWhisperCpp();
 
   const isWindows = process.platform === 'win32';
+  const isMac = process.platform === 'darwin';
   const whisperCliName = isWindows ? 'whisper-cli.exe' : 'whisper-cli';
   const ggmlMetalName = 'ggml-metal.metal';
 
@@ -136,6 +167,30 @@ async function copyWhisperCli() {
   if (sourceGgmlMetal) {
     await fsp.copyFile(sourceGgmlMetal, destGgmlMetal);
     console.log(`Copied ggml-metal.metal to ${destGgmlMetal}`);
+  }
+
+  if (isMac) {
+    const whisperBuildDir = process.env.WHISPER_CPP_BUILD_DIR
+      ? path.resolve(process.env.WHISPER_CPP_BUILD_DIR)
+      : path.join(root, 'deps', 'whisper.cpp', 'build');
+    const dylibPattern = /^lib(whisper|ggml).*\.dylib$/;
+    const dylibSources = fs.existsSync(whisperBuildDir)
+      ? await findFiles(whisperBuildDir, (name) => dylibPattern.test(name))
+      : [];
+
+    if (dylibSources.length === 0) {
+      console.warn(`No whisper dylibs found under ${whisperBuildDir}; skipping dylib copy.`);
+      return;
+    }
+
+    for (const dylibSource of dylibSources) {
+      const destDylib = path.join(destBinDir, path.basename(dylibSource));
+      await fsp.copyFile(dylibSource, destDylib);
+      console.log(`Copied ${path.basename(dylibSource)} to ${destDylib}`);
+      ensureLoaderPathRpath(destDylib);
+    }
+
+    ensureLoaderPathRpath(destWhisperCli);
   }
 }
 
