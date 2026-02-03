@@ -233,6 +233,7 @@ struct TranscribeParams {
     dedup_merge_gap_sec: Option<f32>,
     translate: Option<bool>,
     language: Option<String>,
+    flash_attn: Option<bool>,
     output_formats: Option<Vec<String>>,
     dry_run: Option<bool>,
 }
@@ -260,6 +261,7 @@ struct TranscribeConfig {
     dedup_merge_gap_sec: f32,
     translate: bool,
     language: String,
+    flash_attn: bool,
     output_formats: Vec<String>,
     dry_run: bool,
 }
@@ -321,6 +323,7 @@ fn transcribe(params: &serde_json::Value, stdout: &mut impl Write) -> Result<ser
         dedup_merge_gap_sec: input.dedup_merge_gap_sec.unwrap_or(0.6),
         translate: input.translate.unwrap_or(true),
         language: input.language.unwrap_or_else(|| "auto".to_string()),
+        flash_attn: input.flash_attn.unwrap_or(false),
         output_formats: input.output_formats.unwrap_or_else(|| vec!["srt".to_string()]),
         dry_run: input.dry_run.unwrap_or(false),
     };
@@ -457,6 +460,12 @@ fn transcribe(params: &serde_json::Value, stdout: &mut impl Write) -> Result<ser
             "-ml".to_string(),
             config.max_len_chars.to_string(),
         ]);
+
+        if config.flash_attn {
+            whisper_args.push("-fa".to_string());
+        } else {
+            whisper_args.push("-nfa".to_string());
+        }
         
         // Append output options
         if config.split_on_word {
@@ -673,7 +682,7 @@ fn run_command(
 
     let mut command = Command::new(program);
     command.args(args);
-    command.stdout(std::process::Stdio::null());
+    command.stdout(std::process::Stdio::piped());
     command.stderr(std::process::Stdio::piped());
 
     if let Some(value) = vk_icd_filenames {
@@ -706,14 +715,35 @@ fn run_command(
 
     let output = command.output()?;
     if !output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
-        let stderr = stderr.trim();
-        if stderr.is_empty() {
-            return Err(anyhow!("Command failed: {}", rendered));
+        let combined = format!("{}\n{}", stderr.trim(), stdout.trim()).trim().to_string();
+        let combined = truncate_log(&combined, 8000);
+        let exit_code = output
+            .status
+            .code()
+            .map(|code| code.to_string())
+            .unwrap_or_else(|| "terminated".to_string());
+        if combined.is_empty() {
+            return Err(anyhow!("Command failed (exit {}): {}", exit_code, rendered));
         }
-        return Err(anyhow!("Command failed: {} ({})", rendered, stderr));
+        return Err(anyhow!(
+            "Command failed (exit {}): {} ({})",
+            exit_code,
+            rendered,
+            combined
+        ));
     }
     Ok(())
+}
+
+fn truncate_log(value: &str, max_chars: usize) -> String {
+    let count = value.chars().count();
+    if count <= max_chars {
+        return value.to_string();
+    }
+    let start = count.saturating_sub(max_chars);
+    value.chars().skip(start).collect()
 }
 
 #[derive(Debug)]

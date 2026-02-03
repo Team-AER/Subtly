@@ -27,6 +27,7 @@ export const useRuntimeStore = create((set) => ({
     translate: true,
     language: 'auto',
     language: 'auto',
+    flashAttn: false,
     exportFormats: ['srt'],
     dryRun: false
   },

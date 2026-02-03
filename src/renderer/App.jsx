@@ -204,6 +204,7 @@ export default function App() {
     dedup_merge_gap_sec: z.number().positive(),
     translate: z.boolean(),
     language: z.string().min(1),
+    flash_attn: z.boolean(),
     output_formats: z.array(z.string()).optional(),
     dry_run: z.boolean()
   });
@@ -278,6 +279,7 @@ export default function App() {
         dedup_merge_gap_sec: Number(settings.dedupMergeGapSec),
         translate: Boolean(settings.translate),
         language: settings.language || 'auto',
+        flash_attn: Boolean(settings.flashAttn),
         output_formats: settings.exportFormats || ['srt'],
         dry_run: Boolean(settings.dryRun)
       });
@@ -676,6 +678,19 @@ export default function App() {
                     />
                     Split on word boundaries
                   </label>
+                  <div className="grid gap-1 text-sm text-slate-300">
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={settings.flashAttn}
+                        onChange={(event) => updateSettings({ flashAttn: event.target.checked })}
+                      />
+                      Enable flash attention
+                    </label>
+                    <p className="text-xs text-amber-300/90">
+                      Warning: Flash attention can cause crashes or silent failures on some Windows Vulkan drivers.
+                    </p>
+                  </div>
                   <label className="flex items-center gap-2 text-sm text-slate-300">
                     <input
                       type="checkbox"
