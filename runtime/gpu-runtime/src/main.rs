@@ -696,6 +696,21 @@ fn run_command(
         }
     }
 
+    #[cfg(target_os = "linux")]
+    {
+        if let Some(parent) = program_path.parent() {
+            if !parent.as_os_str().is_empty() {
+                let mut paths = vec![parent.to_path_buf()];
+                if let Some(existing) = std::env::var_os("LD_LIBRARY_PATH") {
+                    paths.extend(std::env::split_paths(&existing));
+                }
+                if let Ok(joined) = std::env::join_paths(paths) {
+                    command.env("LD_LIBRARY_PATH", joined);
+                }
+            }
+        }
+    }
+
     #[cfg(target_os = "macos")]
     {
         let is_whisper = program_path
@@ -1253,6 +1268,7 @@ mod tests {
             dedup_merge_gap_sec: 0.1,
             translate: true,
             language: "auto".to_string(),
+            flash_attn: false,
             output_formats: vec!["srt".to_string()],
             dry_run: true,
         };
@@ -1303,6 +1319,40 @@ mod tests {
 
         let mut out = Vec::new();
         run_command(&mut out, program, &args, false, Some("vk.json")).unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn run_command_sets_ld_library_path_for_local_programs() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let _guard = ENV_LOCK.lock().unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let output_path = temp.path().join("ld_library_path.txt");
+        let script_path = temp.path().join("print-ld.sh");
+        let script = format!(
+            "#!/bin/sh\nprintf '%s' \"$LD_LIBRARY_PATH\" > \"{}\"\n",
+            output_path.display()
+        );
+        fs::write(&script_path, script).unwrap();
+        let mut perms = fs::metadata(&script_path).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&script_path, perms).unwrap();
+
+        let original = std::env::var("LD_LIBRARY_PATH").ok();
+        std::env::set_var("LD_LIBRARY_PATH", "/tmp/subtly-existing-lib");
+
+        let mut out = Vec::new();
+        let program = script_path.to_string_lossy().to_string();
+        let args: [&str; 0] = [];
+        run_command(&mut out, &program, &args, false, None).unwrap();
+
+        let rendered = fs::read_to_string(output_path).unwrap();
+        let paths = std::env::split_paths(OsStr::new(&rendered)).collect::<Vec<_>>();
+        assert_eq!(paths.first(), Some(&temp.path().to_path_buf()));
+        assert!(paths.iter().any(|path| path == &PathBuf::from("/tmp/subtly-existing-lib")));
+
+        restore_env_var("LD_LIBRARY_PATH", original);
     }
 
     #[test]

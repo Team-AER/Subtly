@@ -123,8 +123,12 @@ async function copyWhisperCli() {
 
   const isWindows = process.platform === 'win32';
   const isMac = process.platform === 'darwin';
+  const isLinux = process.platform === 'linux';
   const whisperCliName = isWindows ? 'whisper-cli.exe' : 'whisper-cli';
   const ggmlMetalName = 'ggml-metal.metal';
+  const whisperBuildDir = process.env.WHISPER_CPP_BUILD_DIR
+    ? path.resolve(process.env.WHISPER_CPP_BUILD_DIR)
+    : path.join(root, 'deps', 'whisper.cpp', 'build');
 
   const whisperCliCandidates = isWindows
     ? [
@@ -175,16 +179,42 @@ async function copyWhisperCli() {
     }
   }
 
+  if (isLinux) {
+    const soPattern = /\.so(\.[0-9]+)*$/;
+    const sourceDir = path.dirname(sourceWhisperCli);
+    const directEntries = await fsp.readdir(sourceDir);
+    const directSharedLibs = directEntries
+      .filter((entry) => soPattern.test(entry))
+      .map((entry) => path.join(sourceDir, entry));
+    const discoveredSharedLibs = fs.existsSync(whisperBuildDir)
+      ? await findFiles(whisperBuildDir, (name) => soPattern.test(name))
+      : [];
+
+    const copied = new Set();
+    for (const sharedLib of [...directSharedLibs, ...discoveredSharedLibs]) {
+      const baseName = path.basename(sharedLib);
+      if (copied.has(baseName)) {
+        continue;
+      }
+
+      const destination = path.join(destBinDir, baseName);
+      await fsp.copyFile(sharedLib, destination);
+      copied.add(baseName);
+      console.log(`Copied ${baseName} to ${destination}`);
+    }
+
+    if (copied.size === 0) {
+      console.warn(`No Linux shared libraries found near whisper-cli or under ${whisperBuildDir}.`);
+    }
+  }
+
   // Copy ggml-metal.metal if it exists (required on macOS)
-  if (sourceGgmlMetal) {
+  if (isMac && sourceGgmlMetal) {
     await fsp.copyFile(sourceGgmlMetal, destGgmlMetal);
     console.log(`Copied ggml-metal.metal to ${destGgmlMetal}`);
   }
 
   if (isMac) {
-    const whisperBuildDir = process.env.WHISPER_CPP_BUILD_DIR
-      ? path.resolve(process.env.WHISPER_CPP_BUILD_DIR)
-      : path.join(root, 'deps', 'whisper.cpp', 'build');
     const dylibPattern = /^lib(whisper|ggml).*\.dylib$/;
     const dylibSources = fs.existsSync(whisperBuildDir)
       ? await findFiles(whisperBuildDir, (name) => dylibPattern.test(name))
