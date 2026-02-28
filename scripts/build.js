@@ -118,6 +118,61 @@ function ensureLoaderPathRpath(targetPath) {
   throw new Error(`install_name_tool failed for ${targetPath}: ${stderr || result.error || 'unknown error'}`);
 }
 
+function readNeededSharedLibraries(binaryPath) {
+  const parseNeeded = (text = '') => {
+    const matches = [...text.matchAll(/Shared library:\s*\[([^\]]+)\]/g)];
+    return matches.map((match) => match[1]);
+  };
+
+  const readelf = spawnSync('readelf', ['-d', binaryPath], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+  if (readelf.status === 0) {
+    return parseNeeded(readelf.stdout);
+  }
+
+  const objdump = spawnSync('objdump', ['-p', binaryPath], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe']
+  });
+  if (objdump.status === 0) {
+    const matches = [...String(objdump.stdout || '').matchAll(/^\s*NEEDED\s+(.+)$/gm)];
+    return matches.map((match) => match[1].trim());
+  }
+
+  return [];
+}
+
+async function ensureLinuxSonameAliases(binDir, binaryPath) {
+  const needed = readNeededSharedLibraries(binaryPath).filter((name) => /\.so(\.[0-9]+)*$/.test(name));
+  if (!needed.length) {
+    return;
+  }
+
+  const entries = new Set(await fsp.readdir(binDir));
+  for (const lib of needed) {
+    if (entries.has(lib)) {
+      continue;
+    }
+
+    const base = lib.replace(/(\.so(?:\.[0-9]+)*)$/, '.so');
+    const candidates = Array.from(entries).filter(
+      (entry) => entry === base || entry.startsWith(`${base}.`)
+    );
+    if (!candidates.length) {
+      continue;
+    }
+
+    const preferred = candidates.includes(base)
+      ? base
+      : candidates.sort((a, b) => b.length - a.length)[0];
+    await fsp.copyFile(path.join(binDir, preferred), path.join(binDir, lib));
+    entries.add(lib);
+    console.log(`Created Linux soname alias ${lib} from ${preferred}`);
+  }
+}
+
 async function copyWhisperCli() {
   buildWhisperCpp();
 
@@ -205,6 +260,19 @@ async function copyWhisperCli() {
 
     if (copied.size === 0) {
       console.warn(`No Linux shared libraries found near whisper-cli or under ${whisperBuildDir}.`);
+    }
+
+    await ensureLinuxSonameAliases(destBinDir, destWhisperCli);
+
+    const needed = readNeededSharedLibraries(destWhisperCli);
+    const present = new Set(await fsp.readdir(destBinDir));
+    const criticalMissing = needed.filter((name) =>
+      /^(libwhisper|libggml).*\.so(\.[0-9]+)*$/.test(name) && !present.has(name)
+    );
+    if (criticalMissing.length > 0) {
+      throw new Error(
+        `Missing Linux runtime libraries for whisper-cli: ${criticalMissing.join(', ')}`
+      );
     }
   }
 

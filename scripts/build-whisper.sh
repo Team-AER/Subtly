@@ -57,6 +57,24 @@ else
   )
 fi
 
+binary_needs_packaged_ggml_libs() {
+  local binary_path="$1"
+
+  if command -v readelf >/dev/null 2>&1; then
+    if readelf -d "$binary_path" 2>/dev/null | grep -Eq 'Shared library: \[(libwhisper|libggml).*\.so'; then
+      return 0
+    fi
+  fi
+
+  if command -v ldd >/dev/null 2>&1; then
+    if ldd "$binary_path" 2>/dev/null | grep -Eq 'libwhisper|libggml'; then
+      return 0
+    fi
+  fi
+
+  return 1
+}
+
 find_existing_binary() {
   local candidate
   for candidate in "${whisper_bin_candidates[@]}"; do
@@ -75,8 +93,13 @@ if [[ -n "${WHISPER_CPP_FORCE_REBUILD:-}" ]]; then
 fi
 
 if built_binary="$(find_existing_binary)"; then
-  echo "whisper.cpp already built at $built_binary"
-  exit 0
+  if is_linux && binary_needs_packaged_ggml_libs "$built_binary"; then
+    echo "Existing Linux whisper-cli links to shared ggml/whisper libs; rebuilding static binary."
+    rm -rf "$WHISPER_CPP_BUILD_DIR"
+  else
+    echo "whisper.cpp already built at $built_binary"
+    exit 0
+  fi
 fi
 
 mkdir -p "$(dirname "$WHISPER_CPP_DIR")"
@@ -120,6 +143,15 @@ if is_windows; then
     "-DGGML_AVX=OFF"
     "-DGGML_AVX2=OFF"
     "-DGGML_BMI2=OFF"
+  )
+fi
+
+if is_linux; then
+  # Keep AppImage self-contained: avoid runtime dependency on local libwhisper/libggml sonames.
+  cmake_args+=(
+    "-DBUILD_SHARED_LIBS=OFF"
+    "-DGGML_STATIC=ON"
+    "-DGGML_BACKEND_DL=OFF"
   )
 fi
 
