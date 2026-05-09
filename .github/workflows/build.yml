@@ -217,8 +217,13 @@ jobs:
             exit 0
           fi
           shopt -s nullglob
-          for app in release/*.app; do
-            cargo run -p xtask --release -- notarize "$app"
+          dmgs=(release/*.dmg)
+          if [ ${#dmgs[@]} -eq 0 ]; then
+            echo "::warning::No .dmg found in release/ — skipping notarization"
+            exit 0
+          fi
+          for dmg in "${dmgs[@]}"; do
+            cargo run -p xtask --release -- notarize "$dmg"
           done
 
       - name: Upload Artifacts
