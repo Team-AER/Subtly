@@ -8,6 +8,8 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: 1
 
 jobs:
   build:
@@ -19,10 +21,22 @@ jobs:
         include:
           - os: macos-14
             arch: arm64
+            target: aarch64-apple-darwin
+            artifact-glob: |
+              release/*.dmg
+              release/*.app.tar.gz
           - os: ubuntu-22.04
             arch: amd64
+            target: x86_64-unknown-linux-gnu
+            artifact-glob: |
+              release/*.AppImage
+              release/*.deb
           - os: windows-2022
             arch: amd64
+            target: x86_64-pc-windows-msvc
+            artifact-glob: |
+              release/*.exe
+              release/*.msi
 
     steps:
       - name: Checkout code
@@ -32,7 +46,13 @@ jobs:
         if: matrix.os == 'ubuntu-22.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev libudev-dev libxcb-xinput0 libxcb-xinerama0 libxcb-cursor-dev
+          sudo apt-get install -y \
+            cmake pkg-config build-essential \
+            libasound2-dev libudev-dev \
+            libxcb-xinput0 libxcb-xinerama0 libxcb-cursor-dev \
+            libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+            libfuse2 libssl-dev
+
       - name: Install system dependencies (macOS)
         if: matrix.os == 'macos-14'
         run: |
@@ -43,19 +63,6 @@ jobs:
         shell: pwsh
         run: |
           choco install -y cmake pkgconfiglite --allow-empty-checksums
-          $installer = Join-Path $env:RUNNER_TEMP "vulkan_sdk.exe"
-          Invoke-WebRequest -Uri "https://sdk.lunarg.com/sdk/download/latest/windows/vulkan_sdk.exe" -OutFile $installer
-          & $installer --accept-licenses --default-answer --confirm-command install
-          $vk = $env:VULKAN_SDK
-          if (-not $vk) {
-            $vk = (Get-ChildItem "C:\\VulkanSDK" -Directory | Sort-Object Name -Descending | Select-Object -First 1).FullName
-          }
-          if (-not $vk) {
-            throw "Vulkan SDK not found after install"
-          }
-          "VULKAN_SDK=$vk" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "$vk\\Bin" | Out-File -FilePath $env:GITHUB_PATH -Append
-          "$vk\\Bin32" | Out-File -FilePath $env:GITHUB_PATH -Append
 
       - name: Install Vulkan SDK (Linux)
         if: matrix.os == 'ubuntu-22.04'
@@ -66,137 +73,157 @@ jobs:
           SDK_DIR="${PWD}/${SDK_VERSION}/x86_64"
           echo "VULKAN_SDK=${SDK_DIR}" >> "$GITHUB_ENV"
           echo "${SDK_DIR}/bin" >> "$GITHUB_PATH"
+          echo "LD_LIBRARY_PATH=${SDK_DIR}/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
+          echo "PKG_CONFIG_PATH=${SDK_DIR}/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}" >> "$GITHUB_ENV"
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install pnpm
-        run: npm install -g pnpm
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Download assets
-        run: pnpm assets:download
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build Runtime
-        run: pnpm build:runtime
-        env:
-          # On Windows, we might need to ensure build tools are available, but actions/runner usually has them.
-          # We might need to handle specific linker flags if any, but standard cargo build is usually fine.
-          RUST_BACKTRACE: 1
-
-      - name: Build Renderer & Main
-        run: pnpm build
-
-      - name: Validate macOS Signing & Notarization Secrets
-        if: matrix.os == 'macos-14'
-        run: |
-          missing=0
-
-          if [ -z "$CSC_LINK" ]; then
-            echo "❌ Missing CSC_LINK (base64-encoded .p12 signing cert)"
-            missing=1
-          fi
-          if [ -z "$CSC_KEY_PASSWORD" ]; then
-            echo "❌ Missing CSC_KEY_PASSWORD (certificate password)"
-            missing=1
-          fi
-          if [ -z "$APPLE_ID" ]; then
-            echo "❌ Missing APPLE_ID"
-            missing=1
-          fi
-          if [ -z "$APPLE_APP_SPECIFIC_PASSWORD" ]; then
-            echo "❌ Missing APPLE_APP_SPECIFIC_PASSWORD"
-            missing=1
-          fi
-          if [ -z "$APPLE_TEAM_ID" ]; then
-            echo "❌ Missing APPLE_TEAM_ID"
-            missing=1
-          fi
-
-          if [ "$missing" -eq 1 ]; then
-            echo "❌ macOS signing/notarization secrets are required for a signed build."
-            exit 1
-          fi
-
-          echo "✓ macOS signing and notarization secrets are set"
-          echo "  APPLE_ID: ${APPLE_ID}"
-          echo "  APPLE_TEAM_ID: ${APPLE_TEAM_ID}"
-          echo "  Testing authentication with Apple..."
-
-          # Test notarytool authentication
-          xcrun notarytool history --apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$APPLE_TEAM_ID" 2>&1 | head -5 || {
-            echo "❌ ERROR: Failed to authenticate with Apple notarization service"
-            echo "Please verify:"
-            echo "  1. APPLE_ID is correct"
-            echo "  2. APPLE_APP_SPECIFIC_PASSWORD is valid (generate new one at appleid.apple.com)"
-            echo "  3. APPLE_TEAM_ID is exactly 10 characters"
-            exit 1
-          }
-          echo "✓ Apple authentication successful"
-        env:
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-
-      - name: Package Application (macOS signed)
-        if: matrix.os == 'macos-14'
-        run: pnpm run pack
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-
-      - name: Package Application (Linux unsigned)
-        if: matrix.os == 'ubuntu-22.04'
-        run: pnpm run pack
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ELECTRON_BUILDER_DISABLE_SIGNING: 'true'
-          CSC_LINK: ''
-          CSC_KEY_PASSWORD: ''
-          WIN_CSC_LINK: ''
-          WIN_CSC_KEY_PASSWORD: ''
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-
-      - name: Package Application (Windows unsigned)
+      - name: Install Vulkan SDK (Windows)
         if: matrix.os == 'windows-2022'
         shell: pwsh
         run: |
-          Remove-Item Env:CSC_LINK -ErrorAction SilentlyContinue
-          Remove-Item Env:CSC_KEY_PASSWORD -ErrorAction SilentlyContinue
-          Remove-Item Env:WIN_CSC_LINK -ErrorAction SilentlyContinue
-          Remove-Item Env:WIN_CSC_KEY_PASSWORD -ErrorAction SilentlyContinue
-          pnpm run pack
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ELECTRON_BUILDER_DISABLE_SIGNING: 'true'
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          $installer = Join-Path $env:RUNNER_TEMP "vulkan_sdk.exe"
+          Invoke-WebRequest -Uri "https://sdk.lunarg.com/sdk/download/latest/windows/vulkan_sdk.exe" -OutFile $installer
+          & $installer --accept-licenses --default-answer --confirm-command install
+          $vk = $env:VULKAN_SDK
+          if (-not $vk) {
+            $vk = (Get-ChildItem "C:\VulkanSDK" -Directory | Sort-Object Name -Descending | Select-Object -First 1).FullName
+          }
+          if (-not $vk) {
+            throw "Vulkan SDK not found after install"
+          }
+          "VULKAN_SDK=$vk" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "$vk\Bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+          "$vk\Bin32" | Out-File -FilePath $env:GITHUB_PATH -Append
 
-        # Note: pnpm pack (electron-builder) will output to 'release' directory as per package.json
-        # "directories": { "output": "release" }
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo registry & build
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: build-${{ matrix.os }}
+          cache-on-failure: true
+
+      - name: Install cargo-packager
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-packager
+
+      - name: Download bundled assets (ffmpeg, VAD model)
+        run: cargo run -p xtask --release -- download-assets
+
+      - name: Build whisper-cli (Unix)
+        if: matrix.os != 'windows-2022'
+        run: bash scripts/build-whisper.sh
+
+      - name: Build whisper-cli (Windows)
+        if: matrix.os == 'windows-2022'
+        shell: bash
+        run: bash scripts/build-whisper.sh
+
+      - name: Stage whisper-cli binary (Unix)
+        if: matrix.os != 'windows-2022'
+        run: |
+          mkdir -p resources/runtime-assets/bin
+          for candidate in deps/whisper.cpp/build/bin/whisper-cli deps/whisper.cpp/build/bin/Release/whisper-cli; do
+            if [ -f "$candidate" ]; then
+              cp "$candidate" resources/runtime-assets/bin/whisper-cli
+              chmod +x resources/runtime-assets/bin/whisper-cli
+              echo "Staged $candidate"
+              exit 0
+            fi
+          done
+          echo "whisper-cli binary not found" >&2
+          exit 1
+
+      - name: Stage whisper-cli binary (Windows)
+        if: matrix.os == 'windows-2022'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path resources\runtime-assets\bin | Out-Null
+          $candidates = @(
+            "deps\whisper.cpp\build\bin\Release\whisper-cli.exe",
+            "deps\whisper.cpp\build\bin\whisper-cli.exe"
+          )
+          foreach ($c in $candidates) {
+            if (Test-Path $c) {
+              Copy-Item $c "resources\runtime-assets\bin\whisper-cli.exe" -Force
+              Write-Host "Staged $c"
+              exit 0
+            }
+          }
+          Write-Error "whisper-cli.exe not found"
+          exit 1
+
+      - name: Build subtly-ui (release)
+        run: cargo build --release -p subtly-ui --target ${{ matrix.target }}
+
+      - name: Validate macOS Signing & Notarization Secrets
+        if: matrix.os == 'macos-14'
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          missing=0
+          for v in APPLE_SIGNING_IDENTITY APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
+            if [ -z "$(eval echo \$$v)" ]; then
+              echo "::warning::Missing $v — packaging will be unsigned/un-notarized"
+              missing=1
+            fi
+          done
+          if [ "$missing" -eq 0 ]; then
+            echo "✓ All macOS signing & notarization secrets present"
+          fi
+
+      - name: Import macOS signing certificate
+        if: matrix.os == 'macos-14'
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          if [ -z "$APPLE_CERTIFICATE_P12" ]; then
+            echo "::warning::APPLE_CERTIFICATE_P12 not set — skipping keychain import; build will be unsigned"
+            exit 0
+          fi
+          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          CERT_PATH="$RUNNER_TEMP/cert.p12"
+          echo "$APPLE_CERTIFICATE_P12" | base64 --decode > "$CERT_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH" >/dev/null
+
+      - name: Package application
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: cargo packager --release --target ${{ matrix.target }}
+
+      - name: Notarize & staple (macOS)
+        if: matrix.os == 'macos-14'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -z "$APPLE_ID" ] || [ -z "$APPLE_APP_SPECIFIC_PASSWORD" ] || [ -z "$APPLE_TEAM_ID" ]; then
+            echo "::warning::Skipping notarization — Apple credentials not provided"
+            exit 0
+          fi
+          shopt -s nullglob
+          for app in release/*.app; do
+            cargo run -p xtask --release -- notarize "$app"
+          done
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: subtly-${{ matrix.os }}
-          path: |
-            release/*.dmg
-            release/*.exe
-            release/*.AppImage
-            release/*.deb
+          name: subtly-${{ matrix.os }}-${{ matrix.arch }}
+          path: ${{ matrix.artifact-glob }}
           if-no-files-found: warn
