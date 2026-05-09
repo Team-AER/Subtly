@@ -200,6 +200,17 @@ jobs:
           security list-keychain -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
           security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH" >/dev/null
 
+          # Notarization requires a "Developer ID Application" cert. Apple
+          # Development / Distribution / Installer certs sign successfully but
+          # the notary service rejects the result with status: Invalid.
+          if ! security find-identity -v -p codesigning "$KEYCHAIN_PATH" \
+                | grep -F 'Developer ID Application' >/dev/null; then
+            echo "::error::Imported P12 does not contain a 'Developer ID Application' identity. Notarization will fail."
+            security find-identity -v -p codesigning "$KEYCHAIN_PATH" || true
+            exit 1
+          fi
+          echo "✓ Developer ID Application identity present in keychain"
+
       - name: Package application (Linux/Windows)
         if: matrix.os != 'macos-14'
         run: cargo packager --release --target ${{ matrix.target }}
@@ -222,7 +233,44 @@ jobs:
             exit 1
           fi
 
-          # Phase 2: zip → submit → staple each .app (xtask notarize handles the zip step).
+          # Phase 2a: deep-sign every nested Mach-O with hardened runtime +
+          # entitlements + secure timestamp. cargo-packager signs the main
+          # binary but does NOT propagate hardened runtime to bundled
+          # executables (whisper-cli, ffmpeg) or dylibs — Apple's notary
+          # rejects any unsigned/non-hardened Mach-O inside the bundle.
+          if [ -n "$APPLE_SIGNING_IDENTITY" ]; then
+            ENTITLEMENTS="$GITHUB_WORKSPACE/resources/entitlements.mac.plist"
+            for app in "${apps[@]}"; do
+              echo "• Deep-signing nested binaries inside $app"
+              # Find every Mach-O file (executables + dylibs) inside the bundle.
+              # `file` reliably identifies Mach-O regardless of extension.
+              while IFS= read -r -d '' f; do
+                if file "$f" | grep -q 'Mach-O'; then
+                  echo "  signing $f"
+                  codesign --force --options runtime --timestamp \
+                           --entitlements "$ENTITLEMENTS" \
+                           --sign "$APPLE_SIGNING_IDENTITY" \
+                           "$f"
+                fi
+              done < <(find "$app/Contents" -type f -print0)
+
+              # Re-sign the outer bundle so its CodeDirectory covers the new
+              # inner signatures. Without this the bundle signature is stale.
+              echo "• Re-signing outer bundle $app"
+              codesign --force --options runtime --timestamp \
+                       --entitlements "$ENTITLEMENTS" \
+                       --sign "$APPLE_SIGNING_IDENTITY" \
+                       "$app"
+
+              # Sanity-check: all signatures must verify before we waste a
+              # notarization round-trip.
+              codesign --verify --deep --strict --verbose=2 "$app"
+            done
+          else
+            echo "::warning::APPLE_SIGNING_IDENTITY not set — skipping deep-sign sweep"
+          fi
+
+          # Phase 2b: zip → submit → staple each .app (xtask notarize handles the zip step).
           if [ -n "$APPLE_ID" ] && [ -n "$APPLE_APP_SPECIFIC_PASSWORD" ] && [ -n "$APPLE_TEAM_ID" ]; then
             for app in "${apps[@]}"; do
               cargo run -p xtask --release -- notarize "$app"

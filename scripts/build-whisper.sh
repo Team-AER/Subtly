@@ -155,6 +155,16 @@ if is_linux; then
   )
 fi
 
+if is_macos; then
+  # Static-link so the bundled whisper-cli has no @rpath references to dylibs
+  # outside the .app — those break notarization and runtime loading.
+  cmake_args+=(
+    "-DBUILD_SHARED_LIBS=OFF"
+    "-DGGML_STATIC=ON"
+    "-DGGML_BACKEND_DL=OFF"
+  )
+fi
+
 echo "Configuring whisper.cpp..."
 cmake "${cmake_args[@]}"
 

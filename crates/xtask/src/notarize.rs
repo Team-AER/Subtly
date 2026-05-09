@@ -8,10 +8,24 @@
 //! `notarytool submit` only accepts `.zip`, `.pkg`, or `.dmg`. When passed a
 //! raw `.app` bundle we zip it to a temp file, submit the zip, then staple
 //! the original `.app`. `.dmg` / `.pkg` / `.zip` are submitted as-is.
+//!
+//! `notarytool submit --wait` exits 0 even when the result is `Invalid` — the
+//! upload succeeded, only the *outcome* is bad. We must parse the JSON output,
+//! check `status == "Accepted"`, and on anything else fetch `notarytool log`
+//! to surface Apple's actual rejection reasons.
 
 use anyhow::{anyhow, Result};
+use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+#[derive(Deserialize)]
+struct SubmitResponse {
+    id: String,
+    status: String,
+    #[serde(default)]
+    message: Option<String>,
+}
 
 pub fn notarize(input_path: &str) -> Result<()> {
     if !cfg!(target_os = "macos") {
@@ -51,7 +65,7 @@ pub fn notarize(input_path: &str) -> Result<()> {
     };
 
     println!("• Submitting {} to notarytool", submit_path.display());
-    let status = Command::new("xcrun")
+    let output = Command::new("xcrun")
         .args([
             "notarytool",
             "submit",
@@ -63,10 +77,63 @@ pub fn notarize(input_path: &str) -> Result<()> {
             "--team-id",
             &team,
             "--wait",
+            "--output-format",
+            "json",
         ])
-        .status()?;
-    if !status.success() {
-        return Err(anyhow!("notarytool submit failed"));
+        .output()?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    if !output.status.success() {
+        eprintln!("--- notarytool stdout ---\n{stdout}");
+        eprintln!("--- notarytool stderr ---\n{stderr}");
+        return Err(anyhow!("notarytool submit invocation failed"));
+    }
+
+    let resp: SubmitResponse = serde_json::from_str(stdout.trim()).map_err(|e| {
+        anyhow!(
+            "could not parse notarytool JSON ({e}). Raw stdout:\n{stdout}\nstderr:\n{stderr}"
+        )
+    })?;
+
+    println!(
+        "• notarytool result: id={} status={}{}",
+        resp.id,
+        resp.status,
+        resp.message
+            .as_deref()
+            .map(|m| format!(" message={m}"))
+            .unwrap_or_default()
+    );
+
+    if resp.status != "Accepted" {
+        // Fetch Apple's per-issue log so the CI output shows exactly which file
+        // failed and why. This is the diagnostic that was missing.
+        eprintln!("• Fetching notarytool log for submission {}", resp.id);
+        let log_out = Command::new("xcrun")
+            .args([
+                "notarytool",
+                "log",
+                &resp.id,
+                "--apple-id",
+                &apple_id,
+                "--password",
+                &pwd,
+                "--team-id",
+                &team,
+            ])
+            .output()?;
+        eprintln!(
+            "--- notarytool log ---\n{}\n{}",
+            String::from_utf8_lossy(&log_out.stdout),
+            String::from_utf8_lossy(&log_out.stderr)
+        );
+        return Err(anyhow!(
+            "notarization rejected: status={} (id={})",
+            resp.status,
+            resp.id
+        ));
     }
 
     // Staple the original artifact (the .app, .dmg, or .pkg). `.zip` cannot
