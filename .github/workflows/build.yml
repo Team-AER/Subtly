@@ -63,14 +63,15 @@ jobs:
         if: matrix.os == 'windows-2022'
         shell: pwsh
         run: |
-          # The runner image ships cmake 4.x. cmake 4.0 introduced CMP0200 which
-          # turns the missing IMPORTED_LOCATION_RELEASE on Vulkan::Vulkan into a hard
-          # error. whisper.cpp's cmake_minimum_required(3.5) locks CMP0200 to OLD so
-          # CMAKE_POLICY_DEFAULT_CMP0200 cannot override it. Install cmake 3.29 via
-          # choco — choco places its shim in C:\ProgramData\chocolatey\bin\ which is
-          # prepended to PATH, reliably shadowing the runner's cmake 4.x.
           choco install -y pkgconfiglite --allow-empty-checksums
-          choco install -y cmake --version=3.29.0 --allow-empty-checksums
+          # The runner image pre-installs cmake 3.31.6 via choco but then overwrites
+          # C:\Program Files\CMake with cmake 4.x (not tracked by choco). C:\Program Files\CMake\bin
+          # comes before choco's shim directory in PATH, so cmake 4.x is found first.
+          # Forcing a reinstall of cmake 3.31.6 re-runs the cmake installer which puts
+          # cmake 3.31.6 back at C:\Program Files\CMake, evicting the cmake 4.x binary.
+          # cmake 3.31.6 treats the missing Vulkan::Vulkan IMPORTED_LOCATION_RELEASE as a
+          # warning (CMP0200 warning), not the hard error cmake 4.x introduced.
+          choco install -y cmake --version=3.31.6 --force --allow-empty-checksums
           # whisper.cpp's Vulkan shader ExternalProject creates deeply-nested paths that
           # exceed MAX_PATH (260 chars) from the default D:\a\<repo>\<repo>\target\ base.
           # C:\cbt keeps all intermediate paths well within the limit.
