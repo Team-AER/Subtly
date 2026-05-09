@@ -162,15 +162,30 @@ jobs:
       - name: Validate macOS Signing & Notarization Secrets
         if: matrix.os == 'macos-14'
         env:
+          # CSC_LINK / CSC_KEY_PASSWORD follow the electron-builder /
+          # cargo-packager convention: base64-encoded .p12 + its password.
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
+          # Identity can come from either the imported P12 (preferred,
+          # auto-derived in the cert-import step) OR an explicit
+          # APPLE_SIGNING_IDENTITY secret. We need at least one.
           missing=0
-          for v in APPLE_SIGNING_IDENTITY APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
+          if [ -z "$CSC_LINK" ] && [ -z "$APPLE_SIGNING_IDENTITY" ]; then
+            echo "::warning::No signing identity available (need CSC_LINK + CSC_KEY_PASSWORD, or APPLE_SIGNING_IDENTITY) — packaging will be unsigned"
+            missing=1
+          fi
+          if [ -n "$CSC_LINK" ] && [ -z "$CSC_KEY_PASSWORD" ]; then
+            echo "::warning::CSC_LINK set but CSC_KEY_PASSWORD missing — keychain import will fail"
+            missing=1
+          fi
+          for v in APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
             if [ -z "$(eval echo \$$v)" ]; then
-              echo "::warning::Missing $v — packaging will be unsigned/un-notarized"
+              echo "::warning::Missing $v — notarization will be skipped"
               missing=1
             fi
           done
@@ -181,21 +196,50 @@ jobs:
       - name: Import macOS signing certificate
         if: matrix.os == 'macos-14'
         env:
-          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          # CSC_LINK is either a base64-encoded .p12 (most common for CI),
+          # an https:// URL, a file:// URL, or a local filesystem path.
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
-          if [ -z "$APPLE_CERTIFICATE_P12" ]; then
-            echo "::warning::APPLE_CERTIFICATE_P12 not set — skipping keychain import; build will be unsigned"
+          if [ -z "$CSC_LINK" ]; then
+            echo "::warning::CSC_LINK not set — skipping keychain import; build will be unsigned"
             exit 0
           fi
           KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain"
           KEYCHAIN_PASSWORD="$(uuidgen)"
           CERT_PATH="$RUNNER_TEMP/cert.p12"
-          echo "$APPLE_CERTIFICATE_P12" | base64 --decode > "$CERT_PATH"
+
+          case "$CSC_LINK" in
+            https://*|http://*)
+              echo "• Fetching CSC_LINK from URL"
+              curl -fsSL "$CSC_LINK" -o "$CERT_PATH"
+              ;;
+            file://*)
+              cp "${CSC_LINK#file://}" "$CERT_PATH"
+              ;;
+            /*)
+              cp "$CSC_LINK" "$CERT_PATH"
+              ;;
+            *)
+              echo "• Decoding CSC_LINK as base64"
+              echo "$CSC_LINK" | base64 --decode > "$CERT_PATH"
+              ;;
+          esac
+
+          # Sanity-check the decoded file is actually a PKCS#12 archive — if
+          # it's not, security import emits a vague error that's easy to
+          # misread as a credential problem.
+          if ! file "$CERT_PATH" | grep -qiE 'data|pkcs'; then
+            echo "::error::CSC_LINK did not produce a readable file at $CERT_PATH"
+            file "$CERT_PATH" || true
+            exit 1
+          fi
+
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security import "$CERT_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" \
+          security import "$CERT_PATH" -P "$CSC_KEY_PASSWORD" \
             -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
           security list-keychain -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
           security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH" >/dev/null
@@ -203,13 +247,24 @@ jobs:
           # Notarization requires a "Developer ID Application" cert. Apple
           # Development / Distribution / Installer certs sign successfully but
           # the notary service rejects the result with status: Invalid.
-          if ! security find-identity -v -p codesigning "$KEYCHAIN_PATH" \
-                | grep -F 'Developer ID Application' >/dev/null; then
+          IDENTITY_NAME="$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" \
+            | awk -F '"' '/Developer ID Application/ { print $2; exit }')"
+          if [ -z "$IDENTITY_NAME" ]; then
             echo "::error::Imported P12 does not contain a 'Developer ID Application' identity. Notarization will fail."
             security find-identity -v -p codesigning "$KEYCHAIN_PATH" || true
             exit 1
           fi
-          echo "✓ Developer ID Application identity present in keychain"
+          echo "✓ Developer ID Application identity present: $IDENTITY_NAME"
+
+          # Auto-derive APPLE_SIGNING_IDENTITY for downstream steps so the
+          # user only needs to provide the P12 — the identity string can't
+          # drift from what's actually in the keychain.
+          if [ -z "${APPLE_SIGNING_IDENTITY:-}" ]; then
+            echo "APPLE_SIGNING_IDENTITY=$IDENTITY_NAME" >> "$GITHUB_ENV"
+            echo "✓ Exported APPLE_SIGNING_IDENTITY (auto-derived) to subsequent steps"
+          else
+            echo "✓ APPLE_SIGNING_IDENTITY already set explicitly — leaving as-is"
+          fi
 
       - name: Package application (Linux/Windows)
         if: matrix.os != 'macos-14'
@@ -218,11 +273,20 @@ jobs:
       - name: Package .app and notarize (macOS)
         if: matrix.os == 'macos-14'
         env:
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
+          # APPLE_SIGNING_IDENTITY is inherited from the env exported by the
+          # cert-import step (either auto-derived from the P12 or passed
+          # through from the secret). Fail fast if we're going to attempt
+          # notarization but have no identity — better than discovering it
+          # via a guaranteed-Invalid notarytool round-trip.
+          if [ -n "$APPLE_ID" ] && [ -z "${APPLE_SIGNING_IDENTITY:-}" ]; then
+            echo "::error::Notarization credentials are set but APPLE_SIGNING_IDENTITY is empty (no P12 imported and no identity secret). Provide APPLE_CERTIFICATE_P12 + APPLE_CERTIFICATE_PASSWORD, or set APPLE_SIGNING_IDENTITY explicitly."
+            exit 1
+          fi
+
           # Phase 1: build the .app bundle (signed if APPLE_SIGNING_IDENTITY is set).
           cargo packager --release --target ${{ matrix.target }} --formats app
 
@@ -282,7 +346,6 @@ jobs:
       - name: Package .dmg and notarize (macOS)
         if: matrix.os == 'macos-14'
         env:
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
