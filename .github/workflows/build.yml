@@ -68,6 +68,13 @@ jobs:
           # exceed MAX_PATH (260 chars) from the default D:\a\<repo>\<repo>\target\ base.
           # C:\cbt keeps all intermediate paths well within the limit.
           "CARGO_TARGET_DIR=C:\cbt" | Out-File -FilePath $env:GITHUB_ENV -Append
+          # Newer Vulkan SDKs ship cmake config files that define Vulkan::Vulkan with only
+          # a RelWithDebInfo configuration. With the default CMP0200 policy cmake falls back
+          # to "(none)", leaving INTERFACE_INCLUDE_DIRECTORIES empty for Release builds and
+          # causing #include <vulkan/vulkan.hpp> to fail. This mapping tells cmake to use
+          # the RelWithDebInfo config of imported targets (Vulkan::Vulkan) for Release builds.
+          # whisper-rs-sys build.rs forwards all CMAKE_* env vars to cmake as -D flags.
+          "CMAKE_MAP_IMPORTED_CONFIG_RELEASE=RelWithDebInfo" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Install Vulkan SDK (Linux)
         if: matrix.os == 'ubuntu-22.04'
