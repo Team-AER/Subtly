@@ -9,4 +9,4 @@ mod engine;
 mod params;
 
 pub use engine::transcribe_samples;
-pub use params::WhisperConfig;
+pub use params::{flash_attention_is_safe, WhisperConfig};

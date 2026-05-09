@@ -218,7 +218,14 @@ fn truncate_middle(s: &str, n: usize) -> String {
     if s.chars().count() <= n {
         return s.to_string();
     }
-    let tail: String = s.chars().rev().take(n).collect::<Vec<_>>().into_iter().rev().collect();
+    let tail: String = s
+        .chars()
+        .rev()
+        .take(n)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
     format!("…{tail}")
 }
 

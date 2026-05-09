@@ -20,3 +20,11 @@ pub struct WhisperConfig {
     pub vad_min_sil_ms: u32,
     pub vad_pad_ms: u32,
 }
+
+/// Flash attention is only enabled by default on the Metal build.
+///
+/// The non-macOS builds currently compile whisper.cpp with Vulkan, where this
+/// path is still too driver-sensitive for a desktop app default.
+pub const fn flash_attention_is_safe() -> bool {
+    cfg!(target_os = "macos")
+}

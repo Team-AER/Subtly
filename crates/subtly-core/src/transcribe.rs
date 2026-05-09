@@ -106,7 +106,10 @@ impl TranscribeParams {
             dedup_merge_gap_sec: self.dedup_merge_gap_sec.unwrap_or(0.6),
             translate: self.translate.unwrap_or(false),
             language: self.language.unwrap_or_else(|| "auto".to_string()),
-            flash_attn: self.flash_attn.unwrap_or(false),
+            flash_attn: self
+                .flash_attn
+                .unwrap_or_else(crate::whisper::flash_attention_is_safe)
+                && crate::whisper::flash_attention_is_safe(),
             output_formats: self
                 .output_formats
                 .unwrap_or_else(|| vec!["srt".to_string()]),
@@ -207,9 +210,13 @@ pub async fn transcribe(
             .await
             .map_err(|e| anyhow!("decode task panicked: {e}"))??;
 
-        let segments: Vec<Segment> =
-            transcribe_samples(samples, build_whisper_config(&config), events.clone(), cancel.clone())
-                .await?;
+        let segments: Vec<Segment> = transcribe_samples(
+            samples,
+            build_whisper_config(&config),
+            events.clone(),
+            cancel.clone(),
+        )
+        .await?;
 
         write_outputs(&output_base, &segments, &config, &events, &mut outputs).await?;
     }
@@ -339,5 +346,6 @@ mod tests {
         assert_eq!(c.beam_size, 8);
         assert_eq!(c.language, "auto");
         assert!(!c.translate);
+        assert_eq!(c.flash_attn, crate::whisper::flash_attention_is_safe());
     }
 }

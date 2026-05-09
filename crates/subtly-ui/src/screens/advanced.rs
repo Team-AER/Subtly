@@ -8,6 +8,20 @@ use crate::theme as t;
 
 pub fn view<'a>(app: &'a App) -> Element<'a, Message> {
     let s = &app.settings;
+    let flash_attention_safe = subtly_core::whisper::flash_attention_is_safe();
+    let flash_attention_label = if flash_attention_safe {
+        "Flash attention (Metal)"
+    } else {
+        "Flash attention (unavailable on this platform)"
+    };
+    let flash_attention = checkbox(flash_attention_label, s.flash_attn && flash_attention_safe)
+        .size(14)
+        .text_size(12);
+    let flash_attention = if flash_attention_safe {
+        flash_attention.on_toggle(Message::ToggleFlashAttn)
+    } else {
+        flash_attention
+    };
 
     let runtime = group(
         "Runtime",
@@ -105,13 +119,7 @@ pub fn view<'a>(app: &'a App) -> Element<'a, Message> {
                     .text_size(12),
             ]
             .spacing(20),
-            checkbox(
-                "Flash attention (may crash on some Vulkan drivers)",
-                s.flash_attn
-            )
-            .on_toggle(Message::ToggleFlashAttn)
-            .size(14)
-            .text_size(12),
+            flash_attention,
         ]
         .spacing(10)
         .into(),

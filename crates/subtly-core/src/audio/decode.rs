@@ -7,7 +7,7 @@ use anyhow::{anyhow, Context, Result};
 use std::fs::File;
 use std::path::Path;
 use symphonia::core::audio::{Channels, SampleBuffer};
-use symphonia::core::codecs::DecoderOptions;
+use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
 use symphonia::core::errors::Error as SymphoniaError;
 use symphonia::core::formats::FormatOptions;
 use symphonia::core::io::MediaSourceStream;
@@ -43,10 +43,13 @@ pub fn decode(path: &Path) -> Result<Decoded> {
     let mut format = probed.format;
 
     // For containers like mp4/mkv, `default_track()` often returns the video
-    // track which has no `sample_rate`. Only accept the default if it looks
-    // like audio; otherwise scan for the first track with audio params.
+    // track. Pick the first track whose codec is in symphonia's audio
+    // registry. Some demuxers (e.g. mp4 + AAC) don't populate sample_rate or
+    // channels at probe time, so those are filled in from the first decoded
+    // packet's spec instead of being required up front.
     let is_audio = |t: &symphonia::core::formats::Track| {
-        t.codec_params.sample_rate.is_some() && t.codec_params.channels.is_some()
+        t.codec_params.codec != CODEC_TYPE_NULL
+            && get_codecs().get_codec(t.codec_params.codec).is_some()
     };
     let track = format
         .default_track()
@@ -56,19 +59,14 @@ pub fn decode(path: &Path) -> Result<Decoded> {
     let track_id = track.id;
     let codec_params = track.codec_params.clone();
 
-    let sample_rate = codec_params
-        .sample_rate
-        .ok_or_else(|| anyhow!("track {} missing sample rate", track_id))?;
-    let channels = codec_params
-        .channels
-        .ok_or_else(|| anyhow!("track {} missing channel layout", track_id))?;
-
     let mut decoder = get_codecs()
         .make(&codec_params, &DecoderOptions::default())
         .context("no decoder for codec")?;
 
     let mut interleaved: Vec<f32> = Vec::new();
     let mut sample_buf: Option<SampleBuffer<f32>> = None;
+    let mut sample_rate: Option<u32> = codec_params.sample_rate;
+    let mut channels: Option<Channels> = codec_params.channels;
 
     loop {
         let packet = match format.next_packet() {
@@ -89,6 +87,8 @@ pub fn decode(path: &Path) -> Result<Decoded> {
         match decoder.decode(&packet) {
             Ok(audio_buf) => {
                 let spec = *audio_buf.spec();
+                sample_rate.get_or_insert(spec.rate);
+                channels.get_or_insert(spec.channels);
                 let duration = audio_buf.capacity() as u64;
                 let buf =
                     sample_buf.get_or_insert_with(|| SampleBuffer::<f32>::new(duration, spec));
@@ -104,6 +104,10 @@ pub fn decode(path: &Path) -> Result<Decoded> {
     if interleaved.is_empty() {
         return Err(anyhow!("decoded zero samples from {}", path.display()));
     }
+
+    let sample_rate =
+        sample_rate.ok_or_else(|| anyhow!("track {} missing sample rate", track_id))?;
+    let channels = channels.ok_or_else(|| anyhow!("track {} missing channel layout", track_id))?;
 
     Ok(Decoded {
         samples: interleaved,

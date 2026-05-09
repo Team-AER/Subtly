@@ -316,7 +316,7 @@ impl App {
                 self.persist()
             }
             Message::ToggleFlashAttn(v) => {
-                self.settings.flash_attn = v;
+                self.settings.flash_attn = v && subtly_core::whisper::flash_attention_is_safe();
                 self.persist()
             }
             Message::ToggleTranslate(v) => {
@@ -465,19 +465,34 @@ impl App {
 
     pub fn view(&self) -> Element<'_, Message> {
         let sidebar = self.sidebar();
-        let body: Element<'_, Message> = match self.screen {
-            Screen::Workspace => workspace::view(self),
-            Screen::Models => models_screen::view(self),
-            Screen::Advanced => advanced::view(self),
-            Screen::Logs => self.logs_view(),
+        // The Logs screen renders a text_editor that handles its own
+        // scrolling. It must NOT be placed inside a scrollable (an
+        // unbounded-height parent makes text_editor's layout panic).
+        let body_area: Element<'_, Message> = match self.screen {
+            Screen::Logs => container(self.logs_view())
+                .padding([24, 28])
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .into(),
+            _ => {
+                let inner: Element<'_, Message> = match self.screen {
+                    Screen::Workspace => workspace::view(self),
+                    Screen::Models => models_screen::view(self),
+                    Screen::Advanced => advanced::view(self),
+                    Screen::Logs => unreachable!(),
+                };
+                scrollable(container(inner).padding([24, 28]).width(Length::Fill))
+                    .style(t::scrollable_style)
+                    .height(Length::Fill)
+                    .into()
+            }
         };
-        let body_scrollable = scrollable(container(body).padding([24, 28]).width(Length::Fill))
-            .style(t::scrollable_style)
-            .height(Length::Fill);
 
         let main_area = column![
             self.top_bar(),
-            container(body_scrollable).height(Length::Fill).width(Length::Fill),
+            container(body_area)
+                .height(Length::Fill)
+                .width(Length::Fill),
             self.status_bar(),
         ];
 
@@ -529,10 +544,7 @@ impl App {
         .padding(20)
         .width(Length::Fixed(220.0));
 
-        container(nav)
-            .height(Length::Fill)
-            .style(t::sidebar)
-            .into()
+        container(nav).height(Length::Fill).style(t::sidebar).into()
     }
 
     fn top_bar(&self) -> Element<'_, Message> {
@@ -549,8 +561,8 @@ impl App {
                 None => (t::status_dot_warn, "Booting…".to_string()),
             };
 
-        let dot = container(Space::new(Length::Fixed(8.0), Length::Fixed(8.0)))
-            .style(status_color_fn);
+        let dot =
+            container(Space::new(Length::Fixed(8.0), Length::Fixed(8.0))).style(status_color_fn);
 
         let title = text(self.screen.label().to_string()).size(20);
 
@@ -591,9 +603,13 @@ impl App {
 
         container(
             row![
-                text(format!("Device: {device}")).size(11).color(t::TEXT_MUTED),
+                text(format!("Device: {device}"))
+                    .size(11)
+                    .color(t::TEXT_MUTED),
                 Space::with_width(Length::Fixed(20.0)),
-                text(format!("Model: {model}")).size(11).color(t::TEXT_MUTED),
+                text(format!("Model: {model}"))
+                    .size(11)
+                    .color(t::TEXT_MUTED),
                 Space::with_width(Length::Fixed(20.0)),
                 text(format!("{installed} model(s) installed"))
                     .size(11)
@@ -644,13 +660,9 @@ impl App {
                 .into()
         };
 
-        column![
-            actions,
-            Space::with_height(Length::Fixed(8.0)),
-            body,
-        ]
-        .height(Length::Fill)
-        .into()
+        column![actions, Space::with_height(Length::Fixed(8.0)), body,]
+            .height(Length::Fill)
+            .into()
     }
 
     fn add_log(&mut self, message: String) {
@@ -703,11 +715,7 @@ impl App {
                 }
             }
             Event::Segment(s) => {
-                self.add_log(format!(
-                    "[{:>7.2}s] {}",
-                    s.start_ms as f32 / 1000.0,
-                    s.text
-                ));
+                self.add_log(format!("[{:>7.2}s] {}", s.start_ms as f32 / 1000.0, s.text));
             }
             Event::OutputWritten(_) => {}
             Event::Done => {}

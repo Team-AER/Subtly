@@ -2,7 +2,7 @@
 //! pre-conditioned 16 kHz mono samples, and yields finalized `Segment`s
 //! through both a return value and live `Event::Segment` notifications.
 
-use super::params::WhisperConfig;
+use super::params::{flash_attention_is_safe, WhisperConfig};
 use crate::audio::TARGET_SAMPLE_RATE;
 use crate::events::{Event, ProgressUpdate, SegmentEvent};
 use crate::output::Segment;
@@ -42,7 +42,7 @@ fn run_blocking(
 ) -> Result<Vec<Segment>> {
     let mut ctx_params = WhisperContextParameters::default();
     ctx_params.use_gpu = true;
-    ctx_params.flash_attn = config.flash_attn;
+    ctx_params.flash_attn = config.flash_attn && flash_attention_is_safe();
 
     let ctx = WhisperContext::new_with_params(&config.model_path, ctx_params)
         .with_context(|| format!("loading whisper model {}", config.model_path))?;

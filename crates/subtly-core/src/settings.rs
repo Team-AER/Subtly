@@ -51,7 +51,7 @@ impl Default for Settings {
             dedup_merge_gap_sec: 0.6,
             translate: false,
             language: "auto".to_string(),
-            flash_attn: false,
+            flash_attn: crate::whisper::flash_attention_is_safe(),
             export_formats: vec!["srt".to_string()],
             dry_run: false,
         }
@@ -150,6 +150,9 @@ pub fn load_settings() -> Settings {
     if settings.selected_model.is_none() {
         settings.selected_model = Some(crate::models::DEFAULT_WHISPER_MODEL_ID.to_string());
     }
+    if !crate::whisper::flash_attention_is_safe() {
+        settings.flash_attn = false;
+    }
     settings
 }
 
@@ -177,6 +180,7 @@ mod tests {
         assert_eq!(s.beam_size, 8);
         assert_eq!(s.language, "auto");
         assert!(!s.translate);
+        assert_eq!(s.flash_attn, crate::whisper::flash_attention_is_safe());
         assert_eq!(s.export_formats, vec!["srt".to_string()]);
     }
 
