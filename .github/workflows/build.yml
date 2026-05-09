@@ -63,27 +63,20 @@ jobs:
         if: matrix.os == 'windows-2022'
         shell: pwsh
         run: |
+          # The runner image ships cmake 4.x. cmake 4.0 introduced CMP0200 which
+          # turns the missing IMPORTED_LOCATION_RELEASE on Vulkan::Vulkan into a hard
+          # error. whisper.cpp's cmake_minimum_required(3.5) locks CMP0200 to OLD so
+          # CMAKE_POLICY_DEFAULT_CMP0200 cannot override it. Install cmake 3.29 via
+          # choco — choco places its shim in C:\ProgramData\chocolatey\bin\ which is
+          # prepended to PATH, reliably shadowing the runner's cmake 4.x.
           choco install -y pkgconfiglite --allow-empty-checksums
-          # The windows-2022 runner image ships cmake 4.x. cmake 4.0 introduced CMP0200
-          # which turns the missing IMPORTED_LOCATION_RELEASE on Vulkan::Vulkan into a
-          # hard CMake Error during configure. The Vulkan SDK only ships RelWithDebInfo +
-          # Debug locations, and whisper.cpp's cmake_minimum_required(3.5) locks CMP0200
-          # to OLD — so CMAKE_POLICY_DEFAULT_CMP0200 cannot override it. The only fix is
-          # to use cmake 3.x where this was still a warning. Download cmake 3.31 and
-          # prepend its bin directory to PATH so the cmake crate picks it up first.
-          $cmake_ver = "3.31.6"
-          $cmake_zip = Join-Path $env:RUNNER_TEMP "cmake.zip"
-          Invoke-WebRequest `
-              -Uri "https://github.com/Kitware/CMake/releases/download/v${cmake_ver}/cmake-${cmake_ver}-windows-x86_64.zip" `
-              -OutFile $cmake_zip
-          Expand-Archive $cmake_zip -DestinationPath "C:\cmake3"
-          "C:\cmake3\cmake-${cmake_ver}-windows-x86_64\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+          choco install -y cmake --version=3.29.0 --allow-empty-checksums
           # whisper.cpp's Vulkan shader ExternalProject creates deeply-nested paths that
           # exceed MAX_PATH (260 chars) from the default D:\a\<repo>\<repo>\target\ base.
           # C:\cbt keeps all intermediate paths well within the limit.
           "CARGO_TARGET_DIR=C:\cbt" | Out-File -FilePath $env:GITHUB_ENV -Append
-          # Tell cmake 3.x to use RelWithDebInfo config of Vulkan::Vulkan for Release
-          # builds (the SDK only ships RelWithDebInfo + Debug library locations).
+          # Tell cmake to use RelWithDebInfo config of Vulkan::Vulkan for Release builds
+          # (the SDK only ships RelWithDebInfo + Debug library locations).
           "CMAKE_MAP_IMPORTED_CONFIG_RELEASE=RelWithDebInfo" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Install Vulkan SDK (Linux)
