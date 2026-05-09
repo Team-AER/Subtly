@@ -200,31 +200,63 @@ jobs:
           security list-keychain -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
           security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH" >/dev/null
 
-      - name: Package application
-        env:
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      - name: Package application (Linux/Windows)
+        if: matrix.os != 'macos-14'
         run: cargo packager --release --target ${{ matrix.target }}
 
-      - name: Notarize & staple (macOS)
+      - name: Package .app and notarize (macOS)
         if: matrix.os == 'macos-14'
         env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          if [ -z "$APPLE_ID" ] || [ -z "$APPLE_APP_SPECIFIC_PASSWORD" ] || [ -z "$APPLE_TEAM_ID" ]; then
-            echo "::warning::Skipping notarization — Apple credentials not provided"
-            exit 0
-          fi
+          # Phase 1: build the .app bundle (signed if APPLE_SIGNING_IDENTITY is set).
+          cargo packager --release --target ${{ matrix.target }} --formats app
+
           shopt -s nullglob
-          dmgs=(release/*.dmg)
-          if [ ${#dmgs[@]} -eq 0 ]; then
-            echo "::warning::No .dmg found in release/ — skipping notarization"
-            exit 0
+          apps=(release/*.app)
+          if [ ${#apps[@]} -eq 0 ]; then
+            echo "::error::cargo-packager produced no .app bundle"
+            exit 1
           fi
-          for dmg in "${dmgs[@]}"; do
-            cargo run -p xtask --release -- notarize "$dmg"
-          done
+
+          # Phase 2: zip → submit → staple each .app (xtask notarize handles the zip step).
+          if [ -n "$APPLE_ID" ] && [ -n "$APPLE_APP_SPECIFIC_PASSWORD" ] && [ -n "$APPLE_TEAM_ID" ]; then
+            for app in "${apps[@]}"; do
+              cargo run -p xtask --release -- notarize "$app"
+            done
+          else
+            echo "::warning::Skipping .app notarization — Apple credentials not provided"
+          fi
+
+      - name: Package .dmg and notarize (macOS)
+        if: matrix.os == 'macos-14'
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          # Phase 3: build the .dmg around the (now-stapled) .app.
+          cargo packager --release --target ${{ matrix.target }} --formats dmg
+
+          # Phase 4: notarize + staple the .dmg itself so Gatekeeper trusts the
+          # disk image offline as well.
+          if [ -n "$APPLE_ID" ] && [ -n "$APPLE_APP_SPECIFIC_PASSWORD" ] && [ -n "$APPLE_TEAM_ID" ]; then
+            shopt -s nullglob
+            dmgs=(release/*.dmg)
+            if [ ${#dmgs[@]} -eq 0 ]; then
+              echo "::error::cargo-packager produced no .dmg"
+              exit 1
+            fi
+            for dmg in "${dmgs[@]}"; do
+              cargo run -p xtask --release -- notarize "$dmg"
+            done
+          else
+            echo "::warning::Skipping .dmg notarization — Apple credentials not provided"
+          fi
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
