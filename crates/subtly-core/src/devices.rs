@@ -130,7 +130,10 @@ pub fn select_best_device(devices: &[DeviceInfo]) -> Option<&DeviceInfo> {
     };
 
     for ty in ["DiscreteGpu", "IntegratedGpu"] {
-        if let Some(d) = devices.iter().find(|d| d.device_type == ty && is_gpu_backend(d)) {
+        if let Some(d) = devices
+            .iter()
+            .find(|d| d.device_type == ty && is_gpu_backend(d))
+        {
             return Some(d);
         }
     }

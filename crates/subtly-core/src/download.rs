@@ -34,10 +34,12 @@ pub async fn download_model(
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::limited(10))
         .build()?;
-    let response = client.get(descriptor.url).send().await?.error_for_status()?;
-    let total = response
-        .content_length()
-        .unwrap_or(descriptor.size_bytes);
+    let response = client
+        .get(descriptor.url)
+        .send()
+        .await?
+        .error_for_status()?;
+    let total = response.content_length().unwrap_or(descriptor.size_bytes);
 
     let mut file = tfs::File::create(&temp).await?;
     let mut stream = response.bytes_stream();
@@ -56,7 +58,9 @@ pub async fn download_model(
         let pct = if total == 0 {
             0
         } else {
-            ((downloaded as f64 / total as f64) * 100.0).round().min(100.0) as u8
+            ((downloaded as f64 / total as f64) * 100.0)
+                .round()
+                .min(100.0) as u8
         };
         if pct != last_percent {
             last_percent = pct;

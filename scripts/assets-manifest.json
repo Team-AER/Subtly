@@ -2,14 +2,6 @@
   "platforms": {
     "darwin-arm64": [
       {
-        "name": "ffmpeg",
-        "url": "https://github.com/eugeneware/ffmpeg-static/releases/download/b6.0/ffmpeg-darwin-arm64.gz",
-        "sha256": "6be74d6f449889c2e87a75873894f8520cad56c08ac76f2a628d85b0519daaca",
-        "dest": "resources/runtime-assets/bin/ffmpeg.gz",
-        "mode": "755",
-        "extract": "gunzip"
-      },
-      {
         "name": "silero-vad-v5",
         "url": "https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v5.1.2.bin",
         "sha256": "29940d98d42b91fbd05ce489f3ecf7c72f0a42f027e4875919a28fb4c04ea2cf",
@@ -17,14 +9,6 @@
       }
     ],
     "darwin-x64": [
-      {
-        "name": "ffmpeg",
-        "url": "https://github.com/eugeneware/ffmpeg-static/releases/download/b6.0/ffmpeg-darwin-x64.gz",
-        "sha256": "a12354fce7eb62361473bbe10d53a1893695babd35869ec8e92e5dfea8d0440b",
-        "dest": "resources/runtime-assets/bin/ffmpeg.gz",
-        "mode": "755",
-        "extract": "gunzip"
-      },
       {
         "name": "silero-vad-v5",
         "url": "https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v5.1.2.bin",
@@ -34,14 +18,6 @@
     ],
     "linux-x64": [
       {
-        "name": "ffmpeg",
-        "url": "https://github.com/eugeneware/ffmpeg-static/releases/download/b6.0/ffmpeg-linux-x64.gz",
-        "sha256": "17c1ae10b52ac499180679fe6ba77e17642390c4eedb0f1e3b0ac045da55128f",
-        "dest": "resources/runtime-assets/bin/ffmpeg.gz",
-        "mode": "755",
-        "extract": "gunzip"
-      },
-      {
         "name": "silero-vad-v5",
         "url": "https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v5.1.2.bin",
         "sha256": "29940d98d42b91fbd05ce489f3ecf7c72f0a42f027e4875919a28fb4c04ea2cf",
@@ -49,19 +25,6 @@
       }
     ],
     "win32-x64": [
-      {
-        "name": "ffmpeg",
-        "url": "https://github.com/eugeneware/ffmpeg-static/releases/download/b6.0/ffmpeg-win32-x64.gz",
-        "sha256": "450d66226c79405c724e821f291cab0911e934bfa9fa2231adcab587f3e07b50",
-        "dest": "resources/runtime-assets/bin/ffmpeg.exe.gz",
-        "extract": "gunzip"
-      },
-      {
-        "name": "vc-redist-x64",
-        "url": "https://download.visualstudio.microsoft.com/download/pr/7ebf5fdb-36dc-4145-b0a0-90d3d5990a61/CC0FF0EB1DC3F5188AE6300FAEF32BF5BEEBA4BDD6E8E445A9184072096B713B/VC_redist.x64.exe",
-        "sha256": "cc0ff0eb1dc3f5188ae6300faef32bf5beeba4bdd6e8e445a9184072096b713b",
-        "dest": "resources/runtime-assets/bin/vc_redist.x64.exe"
-      },
       {
         "name": "silero-vad-v5",
         "url": "https://huggingface.co/ggml-org/whisper-vad/resolve/main/ggml-silero-v5.1.2.bin",

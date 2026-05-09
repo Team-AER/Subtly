@@ -1,10 +1,13 @@
 Packaged runtime assets.
 
-Copy platform-specific binaries and models into this folder before packaging:
+Only the Silero VAD model is bundled now — whisper.cpp is linked into the app
+binary via `whisper-rs`, and audio decoding goes through `symphonia` in-process,
+so there are no `whisper-cli` or `ffmpeg` binaries to ship.
 
-- bin/whisper-cli (or whisper-cli.exe on Windows)
-- bin/ffmpeg (or ffmpeg.exe on Windows)
-- models/ggml-large-v3.bin
-- models/ggml-silero-v6.2.0.bin
+Layout:
 
-These will be bundled into the app at runtime/assets for the AIO experience.
+- `models/silero_vad.bin` — populated by `cargo run -p xtask -- download-assets`
+  from `scripts/assets-manifest.json` (SHA256-verified).
+
+User-downloaded Whisper models live in `${data_dir}/app.aer.Subtly/models/`,
+not here.

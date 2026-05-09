@@ -47,10 +47,6 @@ category = "Utility"
 out-dir = "../../release"
 # Per-platform `formats` are picked by cargo-packager based on host OS.
 resources = [
-    { src = "../../resources/runtime-assets/bin/ffmpeg", target = "bin/ffmpeg" },
-    { src = "../../resources/runtime-assets/bin/ffmpeg.exe", target = "bin/ffmpeg.exe" },
-    { src = "../../resources/runtime-assets/bin/whisper-cli", target = "bin/whisper-cli" },
-    { src = "../../resources/runtime-assets/bin/whisper-cli.exe", target = "bin/whisper-cli.exe" },
     { src = "../../resources/runtime-assets/models/silero_vad.bin", target = "models/silero_vad.bin" },
 ]
 

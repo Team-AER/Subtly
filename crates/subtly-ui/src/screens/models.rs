@@ -56,50 +56,74 @@ fn model_card<'a>(
     let selected = !is_vad && app.settings.selected_model.as_deref() == Some(descriptor.id);
 
     // Header
-    let mut header = row![
-        column![
-            row![
-                text(descriptor.name.to_string()).size(15),
-                if descriptor.recommended {
-                    pill("Recommended", t::ACCENT)
-                } else {
-                    Space::new(Length::Fixed(0.0), Length::Fixed(0.0)).into()
-                },
-                if selected {
-                    pill("Selected", t::SUCCESS)
-                } else if installed.is_some() {
-                    pill("Installed", t::SUCCESS)
-                } else {
-                    Space::new(Length::Fixed(0.0), Length::Fixed(0.0)).into()
-                }
-            ]
-            .spacing(8)
-            .align_y(Alignment::Center),
-            text(descriptor.description.to_string())
-                .size(12)
-                .color(t::TEXT_MUTED),
-            text(descriptor.size.to_string())
-                .size(11)
-                .color(t::TEXT_FAINT),
+    let mut header = row![column![
+        row![
+            text(descriptor.name.to_string()).size(15),
+            if descriptor.recommended {
+                pill("Recommended", t::ACCENT)
+            } else {
+                Space::new(Length::Fixed(0.0), Length::Fixed(0.0)).into()
+            },
+            if selected {
+                pill("Selected", t::SUCCESS)
+            } else if installed.is_some() {
+                pill("Installed", t::SUCCESS)
+            } else {
+                Space::new(Length::Fixed(0.0), Length::Fixed(0.0)).into()
+            }
         ]
-        .spacing(2)
-        .width(Length::Fill),
+        .spacing(8)
+        .align_y(Alignment::Center),
+        text(descriptor.description.to_string())
+            .size(12)
+            .color(t::TEXT_MUTED),
+        text(descriptor.size.to_string())
+            .size(11)
+            .color(t::TEXT_FAINT),
     ]
+    .spacing(2)
+    .width(Length::Fill),]
     .align_y(Alignment::Start)
     .spacing(12);
 
     // Progress / actions
     let actions: Element<'_, Message> = if let Some(progress) = downloading {
-        column![
-            progress_bar(0.0..=100.0, progress.progress as f32).height(Length::Fixed(8.0)),
-            text(format!(
+        let status_text = if progress.cancelling {
+            format!(
+                "Cancelling… {} of {}",
+                crate::widgets::format_bytes(progress.downloaded_bytes),
+                crate::widgets::format_bytes(progress.total_bytes)
+            )
+        } else {
+            format!(
                 "{}% — {} of {}",
                 progress.progress,
-                crate::widgets::progress_modal::format_bytes(progress.downloaded_bytes),
-                crate::widgets::progress_modal::format_bytes(progress.total_bytes)
-            ))
-            .size(11)
-            .color(t::TEXT_MUTED),
+                crate::widgets::format_bytes(progress.downloaded_bytes),
+                crate::widgets::format_bytes(progress.total_bytes)
+            )
+        };
+        let mut cancel_btn = button(
+            text(if progress.cancelling {
+                "Cancelling…"
+            } else {
+                "Cancel"
+            })
+            .size(11),
+        )
+        .padding([4, 10])
+        .style(t::ghost_button);
+        if !progress.cancelling {
+            cancel_btn = cancel_btn.on_press(Message::CancelDownload(descriptor.id.to_string()));
+        }
+        column![
+            progress_bar(0.0..=100.0, progress.progress as f32).height(Length::Fixed(8.0)),
+            row![
+                text(status_text).size(11).color(t::TEXT_MUTED),
+                Space::with_width(Length::Fill),
+                cancel_btn,
+            ]
+            .align_y(Alignment::Center)
+            .spacing(8),
         ]
         .spacing(6)
         .width(Length::Fixed(280.0))
@@ -142,10 +166,7 @@ fn pill<'a>(label: &str, color: iced::Color) -> Element<'a, Message> {
     container(text(label.to_string()).size(10).color(color))
         .padding([2, 8])
         .style(move |_theme| iced::widget::container::Style {
-            background: Some(iced::Background::Color(iced::Color {
-                a: 0.15,
-                ..color
-            })),
+            background: Some(iced::Background::Color(iced::Color { a: 0.15, ..color })),
             border: iced::Border {
                 color: iced::Color { a: 0.4, ..color },
                 width: 1.0,

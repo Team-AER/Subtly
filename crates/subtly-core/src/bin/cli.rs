@@ -4,8 +4,7 @@
 //!   subtly-cli ping
 //!   subtly-cli list-devices
 //!   subtly-cli smoke
-//!   subtly-cli transcribe <input> [--output-dir <dir>] [--model <path>] [--vad <path>]
-//!                                  [--whisper <path>] [--ffmpeg <path>] [--dry-run]
+//!   subtly-cli transcribe <input> [--output-dir <dir>] [--model <path>] [--vad <path>] [--dry-run]
 
 use std::env;
 use subtly_core::{
@@ -49,8 +48,6 @@ async fn main() -> anyhow::Result<()> {
                     "--output-dir" => params.output_dir = args.next(),
                     "--model" => params.model_path = args.next(),
                     "--vad" => params.vad_model_path = args.next(),
-                    "--whisper" => params.whisper_path = args.next(),
-                    "--ffmpeg" => params.ffmpeg_path = args.next(),
                     "--dry-run" => params.dry_run = Some(true),
                     other => eprintln!("ignoring unknown flag: {other}"),
                 }
@@ -63,6 +60,9 @@ async fn main() -> anyhow::Result<()> {
                     match event {
                         Event::Log(msg) => println!("[log] {msg}"),
                         Event::Progress(p) => println!("[progress] {p:?}"),
+                        Event::Segment(s) => {
+                            println!("[segment] {}-{} {}", s.start_ms, s.end_ms, s.text)
+                        }
                         Event::OutputWritten(path) => println!("[output] {path}"),
                         Event::Done => println!("[done]"),
                     }

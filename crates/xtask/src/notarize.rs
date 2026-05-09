@@ -92,9 +92,7 @@ pub fn notarize(input_path: &str) -> Result<()> {
     }
 
     let resp: SubmitResponse = serde_json::from_str(stdout.trim()).map_err(|e| {
-        anyhow!(
-            "could not parse notarytool JSON ({e}). Raw stdout:\n{stdout}\nstderr:\n{stderr}"
-        )
+        anyhow!("could not parse notarytool JSON ({e}). Raw stdout:\n{stdout}\nstderr:\n{stderr}")
     })?;
 
     println!(

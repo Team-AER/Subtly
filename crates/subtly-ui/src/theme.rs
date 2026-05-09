@@ -2,7 +2,7 @@
 
 use iced::border::Radius;
 use iced::theme::{Custom, Palette};
-use iced::widget::{button, container, scrollable, text_input};
+use iced::widget::{button, container, scrollable, text_editor, text_input};
 use iced::{color, Background, Border, Color, Shadow, Theme};
 use std::sync::Arc;
 
@@ -75,36 +75,6 @@ pub fn sidebar(_theme: &Theme) -> container::Style {
     }
 }
 
-pub fn modal_backdrop(_theme: &Theme) -> container::Style {
-    container::Style {
-        background: Some(Background::Color(Color {
-            a: 0.65,
-            ..Color::BLACK
-        })),
-        ..Default::default()
-    }
-}
-
-pub fn modal_card(_theme: &Theme) -> container::Style {
-    container::Style {
-        background: Some(Background::Color(SURFACE)),
-        border: Border {
-            color: BORDER_STRONG,
-            width: 1.0,
-            radius: Radius::new(14.0),
-        },
-        text_color: Some(TEXT),
-        shadow: Shadow {
-            color: Color {
-                a: 0.45,
-                ..Color::BLACK
-            },
-            offset: iced::Vector::new(0.0, 8.0),
-            blur_radius: 32.0,
-        },
-    }
-}
-
 pub fn status_dot_ok(_theme: &Theme) -> container::Style {
     container::Style {
         background: Some(Background::Color(SUCCESS)),
@@ -138,10 +108,7 @@ pub fn primary_button(_theme: &Theme, status: button::Status) -> button::Style {
             a: ACCENT.a,
         },
         button::Status::Pressed => ACCENT_DIM,
-        button::Status::Disabled => Color {
-            a: 0.4,
-            ..ACCENT
-        },
+        button::Status::Disabled => Color { a: 0.4, ..ACCENT },
         _ => ACCENT,
     };
     button::Style {
@@ -207,7 +174,11 @@ pub fn nav_button(active: bool) -> impl Fn(&Theme, button::Status) -> button::St
             background: Some(Background::Color(bg)),
             text_color,
             border: Border {
-                color: if active { ACCENT_DIM } else { Color::TRANSPARENT },
+                color: if active {
+                    ACCENT_DIM
+                } else {
+                    Color::TRANSPARENT
+                },
                 width: if active { 1.0 } else { 0.0 },
                 radius: Radius::new(6.0),
             },
@@ -218,20 +189,14 @@ pub fn nav_button(active: bool) -> impl Fn(&Theme, button::Status) -> button::St
 
 pub fn danger_button(_theme: &Theme, status: button::Status) -> button::Style {
     let bg = match status {
-        button::Status::Hovered => Color {
-            a: 0.18,
-            ..DANGER
-        },
+        button::Status::Hovered => Color { a: 0.18, ..DANGER },
         _ => Color::TRANSPARENT,
     };
     button::Style {
         background: Some(Background::Color(bg)),
         text_color: DANGER,
         border: Border {
-            color: Color {
-                a: 0.4,
-                ..DANGER
-            },
+            color: Color { a: 0.4, ..DANGER },
             width: 1.0,
             radius: Radius::new(6.0),
         },
@@ -253,6 +218,21 @@ pub fn text_input_style(_theme: &Theme, status: text_input::Status) -> text_inpu
             color: border_color,
             width: 1.0,
             radius: Radius::new(6.0),
+        },
+        icon: TEXT_MUTED,
+        placeholder: TEXT_FAINT,
+        value: TEXT,
+        selection: ACCENT_DIM,
+    }
+}
+
+pub fn log_editor_style(_theme: &Theme, _status: text_editor::Status) -> text_editor::Style {
+    text_editor::Style {
+        background: Background::Color(BG),
+        border: Border {
+            color: BORDER,
+            width: 1.0,
+            radius: Radius::new(8.0),
         },
         icon: TEXT_MUTED,
         placeholder: TEXT_FAINT,

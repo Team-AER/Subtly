@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use iced::widget::{button, column, container, row, scrollable, text, Column, Space};
+use iced::widget::{button, column, container, row, scrollable, text, text_editor, Space};
 use iced::{Alignment, Element, Length, Subscription, Task, Theme};
 use tokio::sync::{mpsc, watch};
 
@@ -18,7 +18,6 @@ use subtly_core::transcribe::{transcribe, TranscribeOutcome};
 
 use crate::screens::{advanced, models as models_screen, workspace};
 use crate::theme as t;
-use crate::widgets::progress_modal;
 
 const MAX_LOG_ENTRIES: usize = 1000;
 
@@ -53,27 +52,16 @@ pub struct DownloadInfo {
     pub progress: u8,
     pub downloaded_bytes: u64,
     pub total_bytes: u64,
+    pub cancelling: bool,
 }
 
 #[derive(Debug, Clone)]
-pub struct ProgressModalState {
-    #[allow(dead_code)]
-    pub kind: ProgressKind,
-    pub title: String,
-    pub description: String,
+pub struct TranscribeProgress {
     pub progress: u8,
     pub status_message: String,
-    pub current_bytes: Option<u64>,
-    pub total_bytes: Option<u64>,
     pub current_item: Option<u64>,
     pub total_items: Option<u64>,
-    pub can_cancel: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ProgressKind {
-    Transcription,
-    Download,
+    pub cancelling: bool,
 }
 
 pub struct App {
@@ -85,10 +73,10 @@ pub struct App {
     pub logs: Vec<LogEntry>,
     pub log_seq: u64,
     pub ping_status: Option<PingResult>,
-    pub progress_modal: Option<ProgressModalState>,
     pub is_transcribing: bool,
+    pub transcribe_progress: Option<TranscribeProgress>,
     pub downloading: HashMap<String, DownloadInfo>,
-    pub active_download: Option<String>,
+    pub log_content: text_editor::Content,
     transcribe_cancel: Option<watch::Sender<bool>>,
     download_cancel: HashMap<String, watch::Sender<bool>>,
 }
@@ -126,9 +114,6 @@ pub enum Message {
     SetMaxContext(String),
     SetDedupMergeGapSec(String),
     SetLanguage(String),
-    SetWhisperPath(String),
-    SetFfmpegPath(String),
-    SetVkIcdFilenames(String),
     ToggleSplitOnWord(bool),
     ToggleFlashAttn(bool),
     ToggleTranslate(bool),
@@ -137,11 +122,12 @@ pub enum Message {
     StartTranscribe,
     TranscribeEvent(Event),
     TranscribeFinished(Result<TranscribeOutcome, String>),
-    CancelLongTask,
+    CancelTranscribe,
 
     StartDownload(String),
     DownloadEvent(String, Event),
     DownloadFinished(String, Result<String, String>),
+    CancelDownload(String),
     DeleteModel(String),
 
     SmokeTest,
@@ -149,6 +135,7 @@ pub enum Message {
     AddLog(String),
     SaveSettings,
     ClearLogs,
+    LogAction(text_editor::Action),
 }
 
 impl App {
@@ -163,10 +150,10 @@ impl App {
             logs: Vec::new(),
             log_seq: 0,
             ping_status: None,
-            progress_modal: None,
             is_transcribing: false,
+            transcribe_progress: None,
             downloading: HashMap::new(),
-            active_download: None,
+            log_content: text_editor::Content::new(),
             transcribe_cancel: None,
             download_cancel: HashMap::new(),
         };
@@ -324,18 +311,6 @@ impl App {
                 self.settings.language = v;
                 self.persist()
             }
-            Message::SetWhisperPath(v) => {
-                self.settings.whisper_path = v;
-                self.persist()
-            }
-            Message::SetFfmpegPath(v) => {
-                self.settings.ffmpeg_path = v;
-                self.persist()
-            }
-            Message::SetVkIcdFilenames(v) => {
-                self.settings.vk_icd_filenames = v;
-                self.persist()
-            }
             Message::ToggleSplitOnWord(v) => {
                 self.settings.split_on_word = v;
                 self.persist()
@@ -355,13 +330,13 @@ impl App {
 
             Message::StartTranscribe => self.start_transcribe(),
             Message::TranscribeEvent(event) => {
-                self.handle_event(event, ProgressKind::Transcription);
+                self.handle_transcribe_event(event);
                 Task::none()
             }
             Message::TranscribeFinished(result) => {
                 self.is_transcribing = false;
                 self.transcribe_cancel = None;
-                self.progress_modal = None;
+                self.transcribe_progress = None;
                 match result {
                     Ok(outcome) => {
                         self.add_log(format!("Completed {} job(s).", outcome.jobs));
@@ -373,18 +348,25 @@ impl App {
                 }
                 Task::none()
             }
-            Message::CancelLongTask => {
+            Message::CancelTranscribe => {
                 if let Some(tx) = &self.transcribe_cancel {
                     let _ = tx.send(true);
-                    self.add_log("Transcription cancelled.".to_string());
-                }
-                if let Some(id) = &self.active_download {
-                    if let Some(tx) = self.download_cancel.get(id) {
-                        let _ = tx.send(true);
-                        self.add_log(format!("Download cancelled: {id}"));
+                    self.add_log("Cancellation requested…".to_string());
+                    if let Some(progress) = &mut self.transcribe_progress {
+                        progress.status_message = "Cancelling…".to_string();
+                        progress.cancelling = true;
                     }
                 }
-                self.progress_modal = None;
+                Task::none()
+            }
+            Message::CancelDownload(model_id) => {
+                if let Some(tx) = self.download_cancel.get(&model_id) {
+                    let _ = tx.send(true);
+                    self.add_log(format!("Download cancellation requested: {model_id}"));
+                }
+                if let Some(info) = self.downloading.get_mut(&model_id) {
+                    info.cancelling = true;
+                }
                 Task::none()
             }
             Message::StartDownload(model_id) => self.start_download(model_id),
@@ -393,21 +375,20 @@ impl App {
                     if let (Some(progress), Some(curr), Some(total)) =
                         (p.progress, p.current, p.total)
                     {
+                        let cancelling = self
+                            .downloading
+                            .get(&model_id)
+                            .map(|d| d.cancelling)
+                            .unwrap_or(false);
                         self.downloading.insert(
                             model_id.clone(),
                             DownloadInfo {
                                 progress,
                                 downloaded_bytes: curr,
                                 total_bytes: total,
+                                cancelling,
                             },
                         );
-                        if self.active_download.as_deref() == Some(model_id.as_str()) {
-                            if let Some(modal) = &mut self.progress_modal {
-                                modal.progress = progress;
-                                modal.current_bytes = Some(curr);
-                                modal.total_bytes = Some(total);
-                            }
-                        }
                     }
                 }
                 Task::none()
@@ -415,15 +396,17 @@ impl App {
             Message::DownloadFinished(model_id, result) => {
                 self.downloading.remove(&model_id);
                 self.download_cancel.remove(&model_id);
-                if self.active_download.as_deref() == Some(model_id.as_str()) {
-                    self.active_download = None;
-                    self.progress_modal = None;
-                }
                 match result {
                     Ok(_) => {
                         self.add_log(format!("Downloaded: {model_id}"));
                         self.installed = installed_models(&models_directory());
-                        if model_id != "silero-vad" && self.settings.selected_model.is_none() {
+                        let selected_installed =
+                            self.settings.selected_model.as_deref().is_some_and(|id| {
+                                self.installed
+                                    .iter()
+                                    .any(|m| m.descriptor.id == id && m.complete)
+                            });
+                        if model_id != "silero-vad" && !selected_installed {
                             self.settings.selected_model = Some(model_id);
                             return self.persist();
                         }
@@ -468,6 +451,13 @@ impl App {
             Message::SaveSettings => self.persist(),
             Message::ClearLogs => {
                 self.logs.clear();
+                self.log_content = text_editor::Content::new();
+                Task::none()
+            }
+            Message::LogAction(action) => {
+                if !action.is_edit() {
+                    self.log_content.perform(action);
+                }
                 Task::none()
             }
         }
@@ -491,26 +481,7 @@ impl App {
             self.status_bar(),
         ];
 
-        let shell: Element<'_, Message> = row![sidebar, main_area].into();
-
-        if let Some(modal) = &self.progress_modal {
-            progress_modal::view(
-                progress_modal::ProgressModalProps {
-                    title: &modal.title,
-                    description: &modal.description,
-                    status_message: &modal.status_message,
-                    progress: modal.progress,
-                    current_bytes: modal.current_bytes,
-                    total_bytes: modal.total_bytes,
-                    current_item: modal.current_item,
-                    total_items: modal.total_items,
-                    can_cancel: modal.can_cancel,
-                },
-                shell,
-            )
-        } else {
-            shell
-        }
+        row![sidebar, main_area].into()
     }
 
     fn sidebar(&self) -> Element<'_, Message> {
@@ -642,18 +613,6 @@ impl App {
     }
 
     fn logs_view(&self) -> Element<'_, Message> {
-        let mut col: Column<'_, Message> = Column::new().spacing(2);
-        if self.logs.is_empty() {
-            col = col.push(
-                text("No activity yet.".to_string())
-                    .size(13)
-                    .color(t::TEXT_MUTED),
-            );
-        } else {
-            for entry in &self.logs {
-                col = col.push(text(entry.message.clone()).size(12).color(t::TEXT));
-            }
-        }
         let actions = row![
             text(format!("{} entries", self.logs.len()))
                 .size(12)
@@ -665,11 +624,32 @@ impl App {
         ]
         .align_y(Alignment::Center);
 
+        let body: Element<'_, Message> = if self.logs.is_empty() {
+            container(
+                text("No activity yet.".to_string())
+                    .size(13)
+                    .color(t::TEXT_MUTED),
+            )
+            .style(t::surface_inset)
+            .padding(14)
+            .width(Length::Fill)
+            .into()
+        } else {
+            text_editor(&self.log_content)
+                .on_action(Message::LogAction)
+                .padding(14)
+                .size(12)
+                .height(Length::Fill)
+                .style(t::log_editor_style)
+                .into()
+        };
+
         column![
             actions,
             Space::with_height(Length::Fixed(8.0)),
-            container(col).style(t::surface_inset).padding(14).width(Length::Fill),
+            body,
         ]
+        .height(Length::Fill)
         .into()
     }
 
@@ -683,6 +663,17 @@ impl App {
             let drop_count = self.logs.len() - MAX_LOG_ENTRIES;
             self.logs.drain(..drop_count);
         }
+        self.rebuild_log_content();
+    }
+
+    fn rebuild_log_content(&mut self) {
+        let joined = self
+            .logs
+            .iter()
+            .map(|e| e.message.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        self.log_content = text_editor::Content::with_text(&joined);
     }
 
     fn persist(&self) -> Task<Message> {
@@ -690,22 +681,33 @@ impl App {
         Task::none()
     }
 
-    fn handle_event(&mut self, event: Event, kind: ProgressKind) {
+    fn handle_transcribe_event(&mut self, event: Event) {
         match event {
             Event::Log(msg) => self.add_log(msg),
             Event::Progress(p) => {
-                if let Some(modal) = &mut self.progress_modal {
-                    if matches!(kind, ProgressKind::Transcription) {
-                        if let Some(progress) = p.progress {
-                            modal.progress = progress;
+                if let Some(progress) = &mut self.transcribe_progress {
+                    if let Some(pct) = p.progress {
+                        progress.progress = pct;
+                    }
+                    if let Some(phase) = p.phase {
+                        if !progress.cancelling {
+                            progress.status_message = phase;
                         }
-                        if let Some(phase) = p.phase {
-                            modal.status_message = phase;
-                        }
-                        modal.current_item = p.current;
-                        modal.total_items = p.total;
+                    }
+                    if p.current.is_some() {
+                        progress.current_item = p.current;
+                    }
+                    if p.total.is_some() {
+                        progress.total_items = p.total;
                     }
                 }
+            }
+            Event::Segment(s) => {
+                self.add_log(format!(
+                    "[{:>7.2}s] {}",
+                    s.start_ms as f32 / 1000.0,
+                    s.text
+                ));
             }
             Event::OutputWritten(_) => {}
             Event::Done => {}
@@ -741,17 +743,12 @@ impl App {
             }
         };
         self.is_transcribing = true;
-        self.progress_modal = Some(ProgressModalState {
-            kind: ProgressKind::Transcription,
-            title: "Generating subtitles".to_string(),
-            description: self.settings.input_path.clone(),
+        self.transcribe_progress = Some(TranscribeProgress {
             progress: 0,
             status_message: "Initializing…".to_string(),
-            current_bytes: None,
-            total_bytes: None,
             current_item: None,
             total_items: None,
-            can_cancel: true,
+            cancelling: false,
         });
         self.add_log("Starting subtitle generation...".to_string());
 
@@ -782,21 +779,9 @@ impl App {
                 progress: 0,
                 downloaded_bytes: 0,
                 total_bytes: 0,
+                cancelling: false,
             },
         );
-        self.active_download = Some(model_id.clone());
-        self.progress_modal = Some(ProgressModalState {
-            kind: ProgressKind::Download,
-            title: "Downloading model".to_string(),
-            description: model_id.clone(),
-            progress: 0,
-            status_message: "Connecting…".to_string(),
-            current_bytes: None,
-            total_bytes: None,
-            current_item: None,
-            total_items: None,
-            can_cancel: true,
-        });
         self.add_log(format!("Starting download: {model_id}"));
 
         let (tx, rx) = mpsc::channel::<Event>(64);

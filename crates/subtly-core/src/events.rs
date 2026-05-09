@@ -6,6 +6,10 @@ use serde::{Deserialize, Serialize};
 pub enum Event {
     Log(String),
     Progress(ProgressUpdate),
+    /// A finalized transcript segment, emitted as inference produces it.
+    /// Lets the UI stream subtitles into a live preview pane while a file
+    /// is still being processed.
+    Segment(SegmentEvent),
     OutputWritten(String),
     Done,
 }
@@ -16,4 +20,11 @@ pub struct ProgressUpdate {
     pub current: Option<u64>,
     pub total: Option<u64>,
     pub phase: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SegmentEvent {
+    pub start_ms: i64,
+    pub end_ms: i64,
+    pub text: String,
 }

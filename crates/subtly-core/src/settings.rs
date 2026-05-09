@@ -1,8 +1,5 @@
-//! User-facing settings shared across UI and core.
-//!
-//! Mirrors the Zustand store in `src/renderer/state/store.js`. Persists to
-//! `${config_dir}/subtly/settings.json` so they survive restart (improvement
-//! over the Electron app, which kept them in memory only).
+//! User-facing settings shared across UI and core. Persists to
+//! `${config_dir}/subtly/settings.json` so they survive restart.
 
 use crate::transcribe::TranscribeParams;
 use serde::{Deserialize, Serialize};
@@ -15,9 +12,6 @@ pub struct Settings {
     pub input_path: String,
     pub output_dir: String,
     pub selected_model: Option<String>,
-    pub whisper_path: String,
-    pub ffmpeg_path: String,
-    pub vk_icd_filenames: String,
     pub threads: usize,
     pub beam_size: u32,
     pub best_of: u32,
@@ -42,10 +36,7 @@ impl Default for Settings {
         Self {
             input_path: String::new(),
             output_dir: String::new(),
-            selected_model: None,
-            whisper_path: String::new(),
-            ffmpeg_path: String::new(),
-            vk_icd_filenames: String::new(),
+            selected_model: Some(crate::models::DEFAULT_WHISPER_MODEL_ID.to_string()),
             threads: num_cpus::get(),
             beam_size: 8,
             best_of: 8,
@@ -58,7 +49,7 @@ impl Default for Settings {
             no_speech_thold: 0.75,
             max_context: 0,
             dedup_merge_gap_sec: 0.6,
-            translate: true,
+            translate: false,
             language: "auto".to_string(),
             flash_attn: false,
             export_formats: vec!["srt".to_string()],
@@ -87,7 +78,7 @@ pub enum ValidationError {
 
 impl Settings {
     /// Convert to a transcribe payload with validation. Returns the first error
-    /// encountered. Mirrors the zod schema in `src/renderer/App.jsx`.
+    /// encountered.
     pub fn build_transcribe_params(
         &self,
         whisper_model_path: &str,
@@ -123,9 +114,6 @@ impl Settings {
             },
             model_path: Some(whisper_model_path.to_string()),
             vad_model_path: Some(vad_model_path.to_string()),
-            whisper_path: opt(&self.whisper_path),
-            ffmpeg_path: opt(&self.ffmpeg_path),
-            vk_icd_filenames: opt(&self.vk_icd_filenames),
             threads: Some(self.threads),
             beam_size: Some(self.beam_size),
             best_of: Some(self.best_of),
@@ -147,14 +135,6 @@ impl Settings {
     }
 }
 
-fn opt(s: &str) -> Option<String> {
-    if s.trim().is_empty() {
-        None
-    } else {
-        Some(s.to_string())
-    }
-}
-
 const SETTINGS_FILENAME: &str = "settings.json";
 
 pub fn settings_path() -> PathBuf {
@@ -166,7 +146,11 @@ pub fn load_settings() -> Settings {
     let Ok(bytes) = std::fs::read(&path) else {
         return Settings::default();
     };
-    serde_json::from_slice(&bytes).unwrap_or_default()
+    let mut settings: Settings = serde_json::from_slice(&bytes).unwrap_or_default();
+    if settings.selected_model.is_none() {
+        settings.selected_model = Some(crate::models::DEFAULT_WHISPER_MODEL_ID.to_string());
+    }
+    settings
 }
 
 pub fn save_settings(settings: &Settings) -> std::io::Result<()> {
@@ -184,11 +168,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn defaults_match_electron_store() {
+    fn defaults_match_aiko_style_baseline() {
         let s = Settings::default();
+        assert_eq!(
+            s.selected_model.as_deref(),
+            Some(crate::models::DEFAULT_WHISPER_MODEL_ID)
+        );
         assert_eq!(s.beam_size, 8);
         assert_eq!(s.language, "auto");
-        assert!(s.translate);
+        assert!(!s.translate);
         assert_eq!(s.export_formats, vec!["srt".to_string()]);
     }
 

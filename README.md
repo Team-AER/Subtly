@@ -1,6 +1,6 @@
 # Subtly
 
-Desktop app for GPU-accelerated Whisper subtitle generation. Single Rust binary built with [Iced](https://iced.rs); shells out to bundled `whisper-cli` and `ffmpeg` for the actual compute. ~13 MB release binary.
+Desktop app for GPU-accelerated Whisper subtitle generation. Single Rust binary built with [Iced](https://iced.rs); whisper.cpp is linked in directly via [whisper-rs](https://github.com/tazz4843/whisper-rs) and audio decoding/resampling/loudness all run in-process via [symphonia](https://github.com/pdeljanov/Symphonia) + [rubato](https://github.com/HEnquist/rubato) + [ebur128](https://github.com/sdroege/ebur128). No subprocesses at runtime.
 
 ## Layout
 
@@ -10,31 +10,37 @@ crates/
   subtly-ui/      Iced application (workspace / models / advanced screens)
   xtask/          build helper (asset download, sync, packaging, notarization)
 resources/        icons, entitlements, NSIS installer script
-runtime/assets/   bundled whisper-cli, ffmpeg, model files (populated by xtask download-assets)
-scripts/          assets-manifest.json, build-whisper.sh, code-signing helpers
+scripts/          assets-manifest.json, code-signing helpers
 ```
+
+## Build prerequisites
+
+- Rust 1.75+
+- A C/C++ toolchain (Xcode CLT on macOS, MSVC on Windows, gcc/clang on Linux) — required by `whisper-rs` to compile whisper.cpp
+- `cmake` ≥ 3.10
+- macOS: Metal SDK (bundled with Xcode)
+- Linux/Windows: a Vulkan loader + headers (`libvulkan-dev` on Debian/Ubuntu)
 
 ## Dev flow
 
 ```sh
-# Pull bundled binaries + VAD model for the current platform
+# Pull the VAD model (only bundled asset)
 cargo run -p xtask -- download-assets
 
 # Run the GUI in dev mode
 cargo run -p subtly-ui
 
-# Run the parity-test CLI
+# Parity-test CLI
 cargo run -p subtly-core --bin subtly-cli -- ping
 cargo run -p subtly-core --bin subtly-cli -- transcribe /path/to/file.mp4 --dry-run
 
-# Run unit tests
+# Unit tests
 cargo test --workspace
 ```
 
 ## Release build
 
 ```sh
-# Single-binary release
 cargo build --release -p subtly-ui
 ./target/release/subtly
 ```
@@ -45,7 +51,7 @@ cargo build --release -p subtly-ui
 # One-time: install cargo-packager
 cargo install cargo-packager --locked
 
-# 1. Pull bundleable assets for the host platform (ffmpeg, VAD model, etc.)
+# 1. Pull the bundled VAD model for the host platform
 cargo run -p xtask -- download-assets
 
 # 2. Build the release binary
@@ -82,22 +88,13 @@ cargo-packager copies the following into the platform's resource directory:
 
 | Path | Purpose |
 |---|---|
-| `bin/ffmpeg`     | Audio decode/normalize before whisper-cli |
-| `bin/whisper-cli` | Whisper.cpp inference binary (build with `scripts/build-whisper.sh`) |
 | `models/silero_vad.bin` | Required VAD model |
 
-Whisper models are not bundled — users download them through the Models tab on first run. The bundled `whisper-cli` and `ffmpeg` come from `resources/runtime-assets/`, which `xtask download-assets` populates from `scripts/assets-manifest.json` (verified by SHA256).
+Whisper models are not bundled — users download them through the Models tab on first run. The default/recommended Whisper model is `large-v2`, matching Aiko's documented macOS accuracy-first model choice. The Silero VAD model comes from `resources/runtime-assets/`, which `xtask download-assets` populates from `scripts/assets-manifest.json` (verified by SHA256).
 
 ## Auto-update / signed releases
 
 Auto-update is wired through [cargo-dist](https://github.com/axodotdev/cargo-dist) + [axoupdater](https://github.com/axodotdev/axoupdater) (gated behind the `auto-update` feature on `subtly-ui`). Set up the release pipeline once with `cargo dist init`; tag pushes then produce signed artifacts and a `dist-manifest.json` the running app reads on startup.
-
-macOS notarization (run inside CI after signing):
-
-```sh
-APPLE_ID=... APPLE_APP_SPECIFIC_PASSWORD=... APPLE_TEAM_ID=... \
-  cargo run -p xtask -- notarize path/to/Subtly.app
-```
 
 ## Optional features
 
@@ -108,13 +105,10 @@ APPLE_ID=... APPLE_APP_SPECIFIC_PASSWORD=... APPLE_TEAM_ID=... \
 
 ## Settings
 
-Persisted to `${config_dir}/app.aer.Subtly/settings.json`. Models live in
-`${data_dir}/app.aer.Subtly/models/`.
+Persisted to `${config_dir}/app.aer.Subtly/settings.json`. Models live in `${data_dir}/app.aer.Subtly/models/`.
+
+Default transcription behavior favors same-language transcription over translation. Enable “Translate to English” only when you explicitly want Whisper's English translation mode.
 
 ## Architecture note
 
-Earlier versions ran the GPU code as a separate `gpu-runtime` child process so a
-Vulkan ICD panic couldn't crash the React UI. The Iced rewrite merges device
-enumeration into the app process — but `whisper-cli` and `ffmpeg` are still
-spawned as subprocesses, so the heavy compute remains crash-isolated. Enumeration
-and the smoke test are wrapped in `catch_unwind` to harden against flaky drivers.
+Earlier versions shelled out to bundled `whisper-cli` and `ffmpeg` binaries to keep heavy compute crash-isolated from the UI. The current build links whisper.cpp in via `whisper-rs` and runs all decoding through `symphonia`/`rubato` in-process — inference happens on a `tokio::task::spawn_blocking` thread so the UI stays responsive, and the abort callback wired to `tokio::sync::watch` lets users cancel mid-file. Device enumeration and the smoke test are wrapped in `catch_unwind` to harden against flaky drivers.

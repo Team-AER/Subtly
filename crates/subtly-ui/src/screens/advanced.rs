@@ -105,10 +105,13 @@ pub fn view<'a>(app: &'a App) -> Element<'a, Message> {
                     .text_size(12),
             ]
             .spacing(20),
-            checkbox("Flash attention (may crash on some Vulkan drivers)", s.flash_attn)
-                .on_toggle(Message::ToggleFlashAttn)
-                .size(14)
-                .text_size(12),
+            checkbox(
+                "Flash attention (may crash on some Vulkan drivers)",
+                s.flash_attn
+            )
+            .on_toggle(Message::ToggleFlashAttn)
+            .size(14)
+            .text_size(12),
         ]
         .spacing(10)
         .into(),
@@ -143,44 +146,13 @@ pub fn view<'a>(app: &'a App) -> Element<'a, Message> {
         .into(),
     );
 
-    let paths = group(
-        "Paths (overrides)",
-        "Leave blank to use the bundled binaries.",
-        column![
-            str_field(
-                "Whisper CLI path",
-                s.whisper_path.clone(),
-                Message::SetWhisperPath,
-                "Auto (bundled)",
-            ),
-            str_field(
-                "FFmpeg path",
-                s.ffmpeg_path.clone(),
-                Message::SetFfmpegPath,
-                "Auto (bundled)",
-            ),
-            str_field(
-                "VK_ICD_FILENAMES override",
-                s.vk_icd_filenames.clone(),
-                Message::SetVkIcdFilenames,
-                "Optional",
-            ),
-        ]
-        .spacing(10)
-        .into(),
-    );
-
-    column![runtime, pipeline, vad, paths]
+    column![runtime, pipeline, vad]
         .spacing(20)
         .max_width(820.0)
         .into()
 }
 
-fn group<'a>(
-    title: &str,
-    hint: &str,
-    body: Element<'a, Message>,
-) -> Element<'a, Message> {
+fn group<'a>(title: &str, hint: &str, body: Element<'a, Message>) -> Element<'a, Message> {
     let header = column![
         text(title.to_string()).size(15),
         text(hint.to_string()).size(11).color(t::TEXT_MUTED),
@@ -195,7 +167,10 @@ fn group<'a>(
 
 fn label_row<'a>(label: &str, value: Element<'a, Message>) -> Element<'a, Message> {
     row![
-        text(label.to_string()).size(11).color(t::TEXT_MUTED).width(Length::Fixed(140.0)),
+        text(label.to_string())
+            .size(11)
+            .color(t::TEXT_MUTED)
+            .width(Length::Fixed(140.0)),
         value,
     ]
     .align_y(Alignment::Center)
@@ -211,7 +186,11 @@ fn device_list<'a>(app: &'a App) -> Element<'a, Message> {
             .into();
     }
     let mut col: Column<'_, Message> = Column::new().spacing(6);
-    col = col.push(text("Available devices".to_string()).size(11).color(t::TEXT_MUTED));
+    col = col.push(
+        text("Available devices".to_string())
+            .size(11)
+            .color(t::TEXT_MUTED),
+    );
     for d in &app.devices {
         let selected = app.selected_device.as_ref().map(|s| &s.name) == Some(&d.name);
         let prefix = if selected { "● " } else { "○ " };
@@ -231,10 +210,7 @@ fn device_list<'a>(app: &'a App) -> Element<'a, Message> {
     col.into()
 }
 
-fn two_col<'a>(
-    a: Element<'a, Message>,
-    b: Element<'a, Message>,
-) -> Element<'a, Message> {
+fn two_col<'a>(a: Element<'a, Message>, b: Element<'a, Message>) -> Element<'a, Message> {
     row![
         container(a).width(Length::FillPortion(1)),
         container(b).width(Length::FillPortion(1)),

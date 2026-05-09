@@ -1,31 +1,26 @@
-//! Transcription orchestration. Lifted from `runtime/gpu-runtime/src/main.rs`
-//! and converted to async + mpsc-based event emission.
+//! Transcription orchestrator. Walks input file(s), pipes each through the
+//! in-process pipeline (decode → downmix → resample → loudnorm → whisper)
+//! and writes the requested output formats. Emits `Event`s as it goes.
 
+use crate::audio::decode_to_mono_16k;
 use crate::events::{Event, ProgressUpdate};
-use crate::paths::{
-    default_binary_name, ensure_executable_available, ensure_path_exists,
-    resolve_asset_dir, resolve_optional_path,
-};
-use crate::srt::dedup_srt;
+use crate::models::DEFAULT_WHISPER_MODEL_FILENAME;
+use crate::output::{self, Segment};
+use crate::paths::{ensure_path_exists, resolve_asset_dir, resolve_optional_path};
+use crate::whisper::{transcribe_samples, WhisperConfig};
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
-use tempfile::TempPath;
-use tokio::process::Command;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use walkdir::WalkDir;
 
-/// Wire-compatible with the previous JSON-RPC `transcribe` params.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct TranscribeParams {
     pub input_path: String,
     pub output_dir: Option<String>,
     pub model_path: Option<String>,
     pub vad_model_path: Option<String>,
-    pub whisper_path: Option<String>,
-    pub ffmpeg_path: Option<String>,
-    pub vk_icd_filenames: Option<String>,
     pub threads: Option<usize>,
     pub beam_size: Option<u32>,
     pub best_of: Option<u32>,
@@ -51,9 +46,6 @@ pub struct TranscribeConfig {
     pub output_dir: Option<PathBuf>,
     pub model_path: String,
     pub vad_model_path: String,
-    pub whisper_path: String,
-    pub ffmpeg_path: String,
-    pub vk_icd_filenames: Option<String>,
     pub threads: usize,
     pub beam_size: u32,
     pub best_of: u32,
@@ -86,32 +78,20 @@ impl TranscribeParams {
         }
         let asset_dir = resolve_asset_dir();
         let asset = asset_dir.as_ref();
+        let default_model_path = format!("models/{DEFAULT_WHISPER_MODEL_FILENAME}");
         Ok(TranscribeConfig {
             input_path: PathBuf::from(self.input_path),
             output_dir: self.output_dir.map(PathBuf::from),
             model_path: resolve_optional_path(
                 self.model_path.as_deref(),
-                asset.map(|d| d.join("models/ggml-large-v3.bin")),
-                "models/ggml-large-v3.bin",
+                asset.map(|d| d.join(&default_model_path)),
+                &default_model_path,
             ),
             vad_model_path: resolve_optional_path(
                 self.vad_model_path.as_deref(),
                 asset.map(|d| d.join("models/silero_vad.bin")),
                 "models/silero_vad.bin",
             ),
-            whisper_path: resolve_optional_path(
-                self.whisper_path.as_deref(),
-                asset.map(|d| d.join("bin").join(default_binary_name("whisper-cli"))),
-                "./build/bin/whisper-cli",
-            ),
-            ffmpeg_path: resolve_optional_path(
-                self.ffmpeg_path.as_deref(),
-                asset.map(|d| d.join("bin").join(default_binary_name("ffmpeg"))),
-                "ffmpeg",
-            ),
-            vk_icd_filenames: self
-                .vk_icd_filenames
-                .filter(|v| !v.trim().is_empty()),
             threads: self.threads.unwrap_or_else(num_cpus::get),
             beam_size: self.beam_size.unwrap_or(8),
             best_of: self.best_of.unwrap_or(8),
@@ -124,7 +104,7 @@ impl TranscribeParams {
             no_speech_thold: self.no_speech_thold.unwrap_or(0.75),
             max_context: self.max_context.unwrap_or(0),
             dedup_merge_gap_sec: self.dedup_merge_gap_sec.unwrap_or(0.6),
-            translate: self.translate.unwrap_or(true),
+            translate: self.translate.unwrap_or(false),
             language: self.language.unwrap_or_else(|| "auto".to_string()),
             flash_attn: self.flash_attn.unwrap_or(false),
             output_formats: self
@@ -135,11 +115,11 @@ impl TranscribeParams {
     }
 }
 
-/// Run the transcription pipeline. Emits log/progress events to `events`.
+/// Run the transcription pipeline. Emits log/progress/segment events.
 pub async fn transcribe(
     params: TranscribeParams,
     events: mpsc::Sender<Event>,
-    cancel: tokio::sync::watch::Receiver<bool>,
+    cancel: watch::Receiver<bool>,
 ) -> Result<TranscribeOutcome> {
     let config = params.into_config()?;
     let inputs = collect_inputs(&config.input_path)?;
@@ -151,10 +131,8 @@ pub async fn transcribe(
     }
 
     if !config.dry_run {
-        ensure_path_exists("whisper-cli", &config.whisper_path)?;
         ensure_path_exists("Whisper model", &config.model_path)?;
         ensure_path_exists("VAD model", &config.vad_model_path)?;
-        ensure_executable_available("ffmpeg", &config.ffmpeg_path)?;
     }
 
     let mut outputs = Vec::new();
@@ -179,19 +157,15 @@ pub async fn transcribe(
             .await;
 
         let output_base = resolve_output_base(&config, &input_path)?;
-        let mut outputs_for_file = Vec::new();
-        for format in &config.output_formats {
-            let ext = format_to_ext(format);
-            outputs_for_file.push(output_base.with_extension(ext));
-        }
+        let outputs_for_file: Vec<PathBuf> = config
+            .output_formats
+            .iter()
+            .map(|fmt| output_base.with_extension(output::format_to_ext(fmt)))
+            .collect();
 
-        let mut needs_run = false;
-        for output_file in &outputs_for_file {
-            if !is_up_to_date(&input_path, output_file) {
-                needs_run = true;
-                break;
-            }
-        }
+        let needs_run = outputs_for_file
+            .iter()
+            .any(|o| !is_up_to_date(&input_path, o));
         if !needs_run {
             let _ = events
                 .send(Event::Log(format!(
@@ -209,128 +183,35 @@ pub async fn transcribe(
             .send(Event::Log(format!("Processing {}", input_path.display())))
             .await;
 
-        let mut tmp_file: Option<TempPath> = None;
-        let tmp_wav = if config.dry_run {
-            output_base.with_extension("__tmp__.wav")
-        } else {
-            let temp = tempfile::Builder::new()
-                .suffix(".wav")
-                .tempfile()?
-                .into_temp_path();
-            let path = temp.to_path_buf();
-            tmp_file = Some(temp);
-            path
-        };
-
-        let input_arg = input_path.to_string_lossy().into_owned();
-        let tmp_arg = tmp_wav.to_string_lossy().into_owned();
-        let ffmpeg_args = [
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-y",
-            "-i",
-            input_arg.as_str(),
-            "-vn",
-            "-af",
-            "pan=mono|c0=0.35*FL+0.35*FR+0.80*FC+0.15*SL+0.15*SR,loudnorm=I=-16:LRA=11:TP=-1.5",
-            "-ar",
-            "16000",
-            "-c:a",
-            "pcm_s16le",
-            tmp_arg.as_str(),
-        ];
-
-        run_command(
-            &events,
-            &config.ffmpeg_path,
-            &ffmpeg_args,
-            config.dry_run,
-            config.vk_icd_filenames.as_deref(),
-        )
-        .await?;
-
-        let mut whisper_args: Vec<String> = vec![
-            "-m".into(),
-            config.model_path.clone(),
-            "-f".into(),
-            tmp_wav.to_string_lossy().into_owned(),
-            "-l".into(),
-            config.language.clone(),
-        ];
-        if config.translate {
-            whisper_args.push("-tr".into());
-        }
-        whisper_args.extend([
-            "-t".into(),
-            config.threads.to_string(),
-            "-bs".into(),
-            config.beam_size.to_string(),
-            "-bo".into(),
-            config.best_of.to_string(),
-            "-nth".into(),
-            config.no_speech_thold.to_string(),
-            "-mc".into(),
-            config.max_context.to_string(),
-            "--suppress-nst".into(),
-            "--vad".into(),
-            "-vm".into(),
-            config.vad_model_path.clone(),
-            "-vt".into(),
-            config.vad_threshold.to_string(),
-            "-vspd".into(),
-            config.vad_min_speech_ms.to_string(),
-            "-vsd".into(),
-            config.vad_min_sil_ms.to_string(),
-            "-vp".into(),
-            config.vad_pad_ms.to_string(),
-            "-ml".into(),
-            config.max_len_chars.to_string(),
-        ]);
-        if config.flash_attn {
-            whisper_args.push("-fa".into());
-        } else {
-            whisper_args.push("-nfa".into());
-        }
-        if config.split_on_word {
-            whisper_args.push("-sow".into());
-        }
-        whisper_args.push("-of".into());
-        whisper_args.push(output_base.to_string_lossy().into_owned());
-        for format in &config.output_formats {
-            whisper_args.push(format_to_flag(format).into());
-        }
-
-        let whisper_args_ref: Vec<&str> = whisper_args.iter().map(|s| s.as_str()).collect();
-        run_command(
-            &events,
-            &config.whisper_path,
-            &whisper_args_ref,
-            config.dry_run,
-            config.vk_icd_filenames.as_deref(),
-        )
-        .await?;
-
-        if config.output_formats.iter().any(|f| f == "srt") && !config.dry_run {
-            let output_srt = output_base.with_extension("srt");
-            dedup_srt(&output_srt, config.dedup_merge_gap_sec)?;
-        } else if config.dry_run {
+        if config.dry_run {
             let _ = events
                 .send(Event::Log(format!(
-                    "DRY-RUN post-process SRT: {}",
-                    output_base.with_extension("srt").display()
+                    "DRY-RUN would decode + transcribe {}",
+                    input_path.display()
                 )))
                 .await;
+            for out in &outputs_for_file {
+                outputs.push(out.display().to_string());
+            }
+            continue;
         }
 
-        drop(tmp_file);
+        let _ = events
+            .send(Event::Log(format!(
+                "Decoding audio from {}",
+                input_path.display()
+            )))
+            .await;
+        let path_for_decode = input_path.clone();
+        let samples = tokio::task::spawn_blocking(move || decode_to_mono_16k(&path_for_decode))
+            .await
+            .map_err(|e| anyhow!("decode task panicked: {e}"))??;
 
-        for out in outputs_for_file {
-            let s = out.display().to_string();
-            outputs.push(s.clone());
-            let _ = events.send(Event::OutputWritten(s.clone())).await;
-            let _ = events.send(Event::Log(format!("Wrote: {s}"))).await;
-        }
+        let segments: Vec<Segment> =
+            transcribe_samples(samples, build_whisper_config(&config), events.clone(), cancel.clone())
+                .await?;
+
+        write_outputs(&output_base, &segments, &config, &events, &mut outputs).await?;
     }
 
     let _ = events.send(Event::Done).await;
@@ -340,23 +221,46 @@ pub async fn transcribe(
     })
 }
 
-fn format_to_ext(format: &str) -> &'static str {
-    match format {
-        "vtt" => "vtt",
-        "json" => "json",
-        "csv" => "csv",
-        "txt" => "txt",
-        _ => "srt",
+async fn write_outputs(
+    output_base: &Path,
+    segments: &[Segment],
+    config: &TranscribeConfig,
+    events: &mpsc::Sender<Event>,
+    outputs: &mut Vec<String>,
+) -> Result<()> {
+    let written = output::write_all(
+        segments,
+        output_base,
+        &config.output_formats,
+        config.dedup_merge_gap_sec,
+    )?;
+    for path in written {
+        let s = path.display().to_string();
+        outputs.push(s.clone());
+        let _ = events.send(Event::OutputWritten(s.clone())).await;
+        let _ = events.send(Event::Log(format!("Wrote: {s}"))).await;
     }
+    Ok(())
 }
 
-fn format_to_flag(format: &str) -> &'static str {
-    match format {
-        "vtt" => "-ovtt",
-        "json" => "-oj",
-        "csv" => "-ocsv",
-        "txt" => "-otxt",
-        _ => "-osrt",
+fn build_whisper_config(c: &TranscribeConfig) -> WhisperConfig {
+    WhisperConfig {
+        model_path: c.model_path.clone(),
+        vad_model_path: c.vad_model_path.clone(),
+        language: c.language.clone(),
+        translate: c.translate,
+        flash_attn: c.flash_attn,
+        threads: c.threads,
+        beam_size: c.beam_size,
+        best_of: c.best_of,
+        max_len_chars: c.max_len_chars,
+        split_on_word: c.split_on_word,
+        no_speech_thold: c.no_speech_thold,
+        max_context: c.max_context,
+        vad_threshold: c.vad_threshold,
+        vad_min_speech_ms: c.vad_min_speech_ms,
+        vad_min_sil_ms: c.vad_min_sil_ms,
+        vad_pad_ms: c.vad_pad_ms,
     }
 }
 
@@ -367,7 +271,7 @@ fn collect_inputs(input_path: &Path) -> Result<Vec<PathBuf>> {
             input_path.display()
         ));
     }
-    let extensions = ["mp4", "mkv", "mov", "wav", "mp3", "m4a"];
+    let extensions = ["mp4", "mkv", "mov", "wav", "mp3", "m4a", "flac", "ogg"];
     if input_path.is_file() {
         return Ok(vec![input_path.to_path_buf()]);
     }
@@ -415,99 +319,6 @@ fn is_up_to_date(input: &Path, output: &Path) -> bool {
     )
 }
 
-async fn run_command(
-    events: &mpsc::Sender<Event>,
-    program: &str,
-    args: &[&str],
-    dry_run: bool,
-    vk_icd_filenames: Option<&str>,
-) -> Result<()> {
-    let rendered = format!("{program} {}", args.join(" "));
-    if dry_run {
-        let _ = events.send(Event::Log(format!("DRY-RUN {rendered}"))).await;
-        return Ok(());
-    }
-
-    let mut command = Command::new(program);
-    command.args(args);
-    command.stdout(std::process::Stdio::piped());
-    command.stderr(std::process::Stdio::piped());
-
-    if let Some(value) = vk_icd_filenames {
-        command.env("VK_ICD_FILENAMES", value);
-    }
-
-    let program_path = Path::new(program);
-    if let Some(parent) = program_path.parent() {
-        if !parent.as_os_str().is_empty() {
-            command.current_dir(parent);
-        }
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        if let Some(parent) = program_path.parent() {
-            if !parent.as_os_str().is_empty() {
-                let mut paths = vec![parent.to_path_buf()];
-                if let Some(existing) = std::env::var_os("LD_LIBRARY_PATH") {
-                    paths.extend(std::env::split_paths(&existing));
-                }
-                if let Ok(joined) = std::env::join_paths(paths) {
-                    command.env("LD_LIBRARY_PATH", joined);
-                }
-            }
-        }
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        let is_whisper = program_path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .map(|n| n == "whisper-cli")
-            .unwrap_or(false);
-        if is_whisper {
-            if let Some(parent) = program_path.parent() {
-                let metal_source = parent.join("ggml-metal.metal");
-                if metal_source.exists() {
-                    command.env("GGML_METAL_PATH_RESOURCES", parent);
-                }
-            }
-        }
-    }
-
-    let output = command.output().await?;
-    if !output.status.success() {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let combined = format!("{}\n{}", stderr.trim(), stdout.trim())
-            .trim()
-            .to_string();
-        let combined = truncate_log(&combined, 8000);
-        let exit_code = output
-            .status
-            .code()
-            .map(|c| c.to_string())
-            .unwrap_or_else(|| "terminated".to_string());
-        if combined.is_empty() {
-            return Err(anyhow!("Command failed (exit {exit_code}): {rendered}"));
-        }
-        return Err(anyhow!(
-            "Command failed (exit {exit_code}): {rendered} ({combined})"
-        ));
-    }
-    Ok(())
-}
-
-fn truncate_log(value: &str, max_chars: usize) -> String {
-    let count = value.chars().count();
-    if count <= max_chars {
-        return value.to_string();
-    }
-    let start = count.saturating_sub(max_chars);
-    value.chars().skip(start).collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -527,24 +338,6 @@ mod tests {
         let c = p.into_config().unwrap();
         assert_eq!(c.beam_size, 8);
         assert_eq!(c.language, "auto");
-        assert!(c.translate);
-    }
-
-    #[test]
-    fn truncate_log_preserves_short() {
-        assert_eq!(truncate_log("hello", 100), "hello");
-    }
-
-    #[test]
-    fn truncate_log_clamps_long() {
-        let s = "a".repeat(20);
-        assert_eq!(truncate_log(&s, 5).len(), 5);
-    }
-
-    #[test]
-    fn format_mapping() {
-        assert_eq!(format_to_ext("vtt"), "vtt");
-        assert_eq!(format_to_ext("unknown"), "srt");
-        assert_eq!(format_to_flag("json"), "-oj");
+        assert!(!c.translate);
     }
 }

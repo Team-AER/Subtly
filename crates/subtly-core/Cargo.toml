@@ -31,6 +31,15 @@ once_cell = { workspace = true }
 uuid = { workspace = true }
 wgpu = "22"
 pollster = "0.3"
+symphonia = { workspace = true }
+rubato = { workspace = true }
+ebur128 = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+whisper-rs = { workspace = true, features = ["metal"] }
+
+[target.'cfg(any(target_os = "linux", target_os = "windows"))'.dependencies]
+whisper-rs = { workspace = true, features = ["vulkan"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }

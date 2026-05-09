@@ -16,31 +16,46 @@ pub struct ModelDescriptor {
     pub recommended: bool,
 }
 
+pub const DEFAULT_WHISPER_MODEL_ID: &str = "large-v2";
+pub const DEFAULT_WHISPER_MODEL_FILENAME: &str = "ggml-large-v2.bin";
+
 pub const WHISPER_MODELS: &[ModelDescriptor] = &[
+    ModelDescriptor {
+        id: DEFAULT_WHISPER_MODEL_ID,
+        name: "Large V2",
+        description: "Accuracy-first default, matching Aiko's documented macOS model choice.",
+        size: "3.09 GB",
+        size_bytes: 3_094_623_232,
+        url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v2.bin",
+        filename: DEFAULT_WHISPER_MODEL_FILENAME,
+        recommended: true,
+    },
     ModelDescriptor {
         id: "large-v3-turbo-q5_0",
         name: "Large V3 Turbo (Q5)",
-        description: "Best balance of speed and accuracy. Recommended for most users.",
+        description:
+            "Smaller, faster turbo model. Use when speed matters more than maximum accuracy.",
         size: "574 MB",
         size_bytes: 601_976_064,
-        url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
+        url:
+            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
         filename: "ggml-large-v3-turbo-q5_0.bin",
         recommended: false,
     },
     ModelDescriptor {
         id: "large-v3-turbo",
         name: "Large V3 Turbo",
-        description: "Full precision turbo model. Faster than Large V3 with similar quality.",
+        description: "Full precision turbo model. Faster, but not the accuracy-first default.",
         size: "1.5 GB",
         size_bytes: 1_624_555_275,
         url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin",
         filename: "ggml-large-v3-turbo.bin",
-        recommended: true,
+        recommended: false,
     },
     ModelDescriptor {
         id: "large-v3",
         name: "Large V3",
-        description: "Highest accuracy. Best for difficult audio or critical transcriptions.",
+        description: "Latest large model. Try it if it works better for your audio.",
         size: "3.1 GB",
         size_bytes: 3_094_623_232,
         url: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin",
@@ -160,6 +175,7 @@ mod tests {
     #[test]
     fn find_descriptor_handles_known_ids() {
         assert!(find_descriptor("silero-vad").is_some());
+        assert!(find_descriptor(DEFAULT_WHISPER_MODEL_ID).is_some());
         assert!(find_descriptor("large-v3").is_some());
         assert!(find_descriptor("nonexistent").is_none());
     }

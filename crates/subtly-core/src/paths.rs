@@ -1,4 +1,4 @@
-//! Filesystem path resolution: bundled assets, user-data models directory, binary names.
+//! Filesystem path resolution: bundled assets and user-data models directory.
 
 use directories::ProjectDirs;
 use std::path::{Path, PathBuf};
@@ -76,18 +76,7 @@ pub fn config_directory() -> PathBuf {
     PathBuf::from(".subtly")
 }
 
-#[cfg(windows)]
-pub fn default_binary_name(base: &str) -> String {
-    format!("{base}.exe")
-}
-
-#[cfg(not(windows))]
-pub fn default_binary_name(base: &str) -> String {
-    base.to_string()
-}
-
 /// Resolve a user-supplied path or fall back to bundled asset / generic default.
-/// Mirrors `resolveOptionalPath` in the original sidecar.
 pub fn resolve_optional_path(
     value: Option<&str>,
     asset_default: Option<PathBuf>,
@@ -113,15 +102,6 @@ pub fn ensure_path_exists(label: &str, path: &str) -> anyhow::Result<()> {
     }
 }
 
-pub fn ensure_executable_available(label: &str, path: &str) -> anyhow::Result<()> {
-    let resolved = Path::new(path);
-    let has_separator = path.contains(std::path::MAIN_SEPARATOR);
-    if (resolved.is_absolute() || has_separator) && !resolved.exists() {
-        return Err(anyhow::anyhow!("{label} not found at {path}"));
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -134,11 +114,7 @@ mod tests {
 
     #[test]
     fn resolve_optional_path_uses_asset_when_value_blank() {
-        let p = resolve_optional_path(
-            Some("   "),
-            Some(PathBuf::from("/asset")),
-            "fallback",
-        );
+        let p = resolve_optional_path(Some("   "), Some(PathBuf::from("/asset")), "fallback");
         assert_eq!(p, "/asset");
     }
 
@@ -146,10 +122,5 @@ mod tests {
     fn resolve_optional_path_uses_fallback_otherwise() {
         let p = resolve_optional_path(None, None, "fallback");
         assert_eq!(p, "fallback");
-    }
-
-    #[test]
-    fn ensure_executable_handles_bare_name() {
-        ensure_executable_available("test", "ffmpeg").unwrap();
     }
 }

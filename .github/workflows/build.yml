@@ -110,51 +110,8 @@ jobs:
         with:
           tool: cargo-packager
 
-      - name: Download bundled assets (ffmpeg, VAD model)
+      - name: Download bundled assets (VAD model)
         run: cargo run -p xtask --release -- download-assets
-
-      - name: Build whisper-cli (Unix)
-        if: matrix.os != 'windows-2022'
-        run: bash scripts/build-whisper.sh
-
-      - name: Build whisper-cli (Windows)
-        if: matrix.os == 'windows-2022'
-        shell: bash
-        run: bash scripts/build-whisper.sh
-
-      - name: Stage whisper-cli binary (Unix)
-        if: matrix.os != 'windows-2022'
-        run: |
-          mkdir -p resources/runtime-assets/bin
-          for candidate in deps/whisper.cpp/build/bin/whisper-cli deps/whisper.cpp/build/bin/Release/whisper-cli; do
-            if [ -f "$candidate" ]; then
-              cp "$candidate" resources/runtime-assets/bin/whisper-cli
-              chmod +x resources/runtime-assets/bin/whisper-cli
-              echo "Staged $candidate"
-              exit 0
-            fi
-          done
-          echo "whisper-cli binary not found" >&2
-          exit 1
-
-      - name: Stage whisper-cli binary (Windows)
-        if: matrix.os == 'windows-2022'
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path resources\runtime-assets\bin | Out-Null
-          $candidates = @(
-            "deps\whisper.cpp\build\bin\Release\whisper-cli.exe",
-            "deps\whisper.cpp\build\bin\whisper-cli.exe"
-          )
-          foreach ($c in $candidates) {
-            if (Test-Path $c) {
-              Copy-Item $c "resources\runtime-assets\bin\whisper-cli.exe" -Force
-              Write-Host "Staged $c"
-              exit 0
-            }
-          }
-          Write-Error "whisper-cli.exe not found"
-          exit 1
 
       - name: Build subtly-ui (release)
         run: cargo build --release -p subtly-ui --target ${{ matrix.target }}
@@ -298,10 +255,11 @@ jobs:
           fi
 
           # Phase 2a: deep-sign every nested Mach-O with hardened runtime +
-          # entitlements + secure timestamp. cargo-packager signs the main
-          # binary but does NOT propagate hardened runtime to bundled
-          # executables (whisper-cli, ffmpeg) or dylibs — Apple's notary
-          # rejects any unsigned/non-hardened Mach-O inside the bundle.
+          # entitlements + secure timestamp. With whisper.cpp linked
+          # statically into the main binary there are typically no nested
+          # Mach-Os to sign, but we still sweep the bundle in case future
+          # dependencies introduce dylibs — Apple's notary rejects any
+          # unsigned or non-hardened Mach-O inside the bundle.
           if [ -n "$APPLE_SIGNING_IDENTITY" ]; then
             ENTITLEMENTS="$GITHUB_WORKSPACE/resources/entitlements.mac.plist"
             for app in "${apps[@]}"; do
