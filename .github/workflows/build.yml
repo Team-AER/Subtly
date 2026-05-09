@@ -64,21 +64,17 @@ jobs:
         shell: pwsh
         run: |
           choco install -y pkgconfiglite --allow-empty-checksums
-          # The runner image pre-installs cmake 3.31.6 via choco but then overwrites
-          # C:\Program Files\CMake with cmake 4.x (not tracked by choco). C:\Program Files\CMake\bin
-          # comes before choco's shim directory in PATH, so cmake 4.x is found first.
-          # Forcing a reinstall of cmake 3.31.6 re-runs the cmake installer which puts
-          # cmake 3.31.6 back at C:\Program Files\CMake, evicting the cmake 4.x binary.
-          # cmake 3.31.6 treats the missing Vulkan::Vulkan IMPORTED_LOCATION_RELEASE as a
-          # warning (CMP0200 warning), not the hard error cmake 4.x introduced.
-          choco install -y cmake --version=3.31.6 --force --allow-empty-checksums
+          # cmake 3.31 introduced CMP0200 which raises a hard configure error when
+          # IMPORTED_LOCATION_<CONFIG> is missing for an imported target (e.g.
+          # Vulkan::Vulkan lacks IMPORTED_LOCATION_RELEASE in the multi-config VS
+          # generator). cmake 3.30 predates this policy entirely, so we use it to
+          # avoid the error. --force reinstalls the cmake installer at
+          # C:\Program Files\CMake, evicting whatever the runner image placed there.
+          choco install -y cmake --version=3.30.8 --force --allow-downgrade --allow-empty-checksums
           # whisper.cpp's Vulkan shader ExternalProject creates deeply-nested paths that
           # exceed MAX_PATH (260 chars) from the default D:\a\<repo>\<repo>\target\ base.
           # C:\cbt keeps all intermediate paths well within the limit.
           "CARGO_TARGET_DIR=C:\cbt" | Out-File -FilePath $env:GITHUB_ENV -Append
-          # Tell cmake to use RelWithDebInfo config of Vulkan::Vulkan for Release builds
-          # (the SDK only ships RelWithDebInfo + Debug library locations).
-          "CMAKE_MAP_IMPORTED_CONFIG_RELEASE=RelWithDebInfo" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Install Vulkan SDK (Linux)
         if: matrix.os == 'ubuntu-22.04'
