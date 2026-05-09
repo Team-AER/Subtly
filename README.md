@@ -1,173 +1,120 @@
-# Subtly (Electron + GPU Sidecar)
+# Subtly
 
-![Build Status](https://github.com/Team-AER/Subtly/actions/workflows/build.yml/badge.svg)
-
-This repo is a working scaffold for an Electron desktop app that generates subtitles for audio/video using Whisper. The UI is Electron + React + Vite; the runtime is Rust + wgpu (Vulkan on Windows/Linux, Metal on macOS). It is intentionally split so GPU faults don't crash the UI.
+Desktop app for GPU-accelerated Whisper subtitle generation. Single Rust binary built with [Iced](https://iced.rs); shells out to bundled `whisper-cli` and `ffmpeg` for the actual compute. ~13 MB release binary.
 
 ## Layout
 
-- `src`: Electron app (main, preload, renderer via Vite)
-- `runtime/gpu-runtime`: Rust JSON-RPC sidecar (device enumeration + Whisper pipeline)
+```
+crates/
+  subtly-core/    transcription orchestration, model catalog, downloads, settings
+  subtly-ui/      Iced application (workspace / models / advanced screens)
+  xtask/          build helper (asset download, sync, packaging, notarization)
+resources/        icons, entitlements, NSIS installer script
+runtime/assets/   bundled whisper-cli, ffmpeg, model files (populated by xtask download-assets)
+scripts/          assets-manifest.json, build-whisper.sh, code-signing helpers
+```
 
 ## Dev flow
 
-1) Build the runtime
+```sh
+# Pull bundled binaries + VAD model for the current platform
+cargo run -p xtask -- download-assets
 
-```
-cargo build --manifest-path runtime/gpu-runtime/Cargo.toml
-```
+# Run the GUI in dev mode
+cargo run -p subtly-ui
 
-2) Install dependencies
+# Run the parity-test CLI
+cargo run -p subtly-core --bin subtly-cli -- ping
+cargo run -p subtly-core --bin subtly-cli -- transcribe /path/to/file.mp4 --dry-run
 
-```
-pnpm install
-```
-
-3) Run the app (Vite + Electron)
-
-```
-pnpm dev
+# Run unit tests
+cargo test --workspace
 ```
 
-The Electron main process will spawn the runtime from:
+## Release build
 
-```
-./runtime/gpu-runtime/target/debug/gpu-runtime
-```
-
-You can override the path with:
-
-```
-AER_RUNTIME_PATH=/absolute/path/to/gpu-runtime pnpm dev
+```sh
+# Single-binary release
+cargo build --release -p subtly-ui
+./target/release/subtly
 ```
 
-## Packaging (per platform)
+## Packaging
 
-Build the native runtime first, then package the Electron app:
+```sh
+# One-time: install cargo-packager
+cargo install cargo-packager --locked
 
-```
-pnpm build:runtime
-pnpm build
-pnpm pack
+# 1. Pull bundleable assets for the host platform (ffmpeg, VAD model, etc.)
+cargo run -p xtask -- download-assets
 
-## Packaging (all platforms, single command)
+# 2. Build the release binary
+cargo build --release -p subtly-ui
 
-Build runtime + renderer and package macOS, Windows, and Linux in one shot:
-
-```
-pnpm pack:all
-```
-
-Notes:
-- This runs `electron-builder -mwl`. Cross-platform builds require the right tooling (e.g., Windows/Linux usually need CI or Docker on macOS).
-- The runtime binary is built for the host OS only; for true multi-platform releases, build runtime per OS (CI matrix recommended).
-```
-
-Electron Builder will bundle the release runtime from:
-
-```
-./runtime/gpu-runtime/target/release
+# 3. Package — outputs in ./release/
+cargo packager --release                     # default formats for host OS
+cargo packager --release -f dmg              # macOS .dmg
+cargo packager --release -f app              # macOS .app bundle only
+cargo packager --release -f nsis             # Windows .exe installer (run on Windows)
+cargo packager --release -f deb              # Linux .deb (run on Linux)
+cargo packager --release -f appimage         # Linux .AppImage (run on Linux)
 ```
 
-and emit platform-specific artifacts:
+cargo-packager can only target the host OS — cross-platform builds need a CI matrix (one runner per OS). The `release/` directory is shared by all formats; clean it between runs if you switch.
 
-- Windows: NSIS installer (`.exe`)
-- macOS: `.dmg`
-- Linux: AppImage + `.deb`
+### macOS code signing + notarization
 
-## Runtime IPC (JSON-RPC over stdio)
+```sh
+# Sign during packaging (cargo-packager picks up APPLE_SIGNING_IDENTITY)
+APPLE_SIGNING_IDENTITY="Developer ID Application: Your Name (TEAM)" \
+  cargo packager --release -f dmg
 
-Requests are newline-delimited JSON:
-
-```
-{ "id": 1, "method": "list_devices", "params": {} }
-```
-
-Responses include `result` or `error`:
-
-```
-{ "id": 1, "result": { "devices": [...] } }
+# Notarize + staple the resulting .app (or .dmg)
+APPLE_ID=you@example.com \
+APPLE_APP_SPECIFIC_PASSWORD=xxxx-xxxx-xxxx-xxxx \
+APPLE_TEAM_ID=ABCDE12345 \
+  cargo run -p xtask -- notarize release/Subtly.app
 ```
 
-## Next integration steps
+### What gets bundled
 
-- Add model registry + caching into `runtime/gpu-runtime`.
-- Add streaming outputs to IPC (token streaming, progress events).
-- Wire per-platform CI that builds and signs artifacts.
-- Configure updates + crash reporting (Sentry DSN + electron-updater publish targets).
+cargo-packager copies the following into the platform's resource directory:
 
-## Whisper prerequisites
+| Path | Purpose |
+|---|---|
+| `bin/ffmpeg`     | Audio decode/normalize before whisper-cli |
+| `bin/whisper-cli` | Whisper.cpp inference binary (build with `scripts/build-whisper.sh`) |
+| `models/silero_vad.bin` | Required VAD model |
 
-The runtime assumes the following binaries/models are available on the host:
+Whisper models are not bundled — users download them through the Models tab on first run. The bundled `whisper-cli` and `ffmpeg` come from `resources/runtime-assets/`, which `xtask download-assets` populates from `scripts/assets-manifest.json` (verified by SHA256).
 
-- `ffmpeg` available in `PATH` (or set in the UI).
-- `whisper-cli` built from `whisper.cpp` (default: `./build/bin/whisper-cli`).
-- Models at:
-  - `models/ggml-large-v3.bin`
-  - `models/ggml-silero-v6.2.0.bin`
+## Auto-update / signed releases
 
-You can override these paths in the UI before running a job.
-If you need to force a specific Vulkan ICD, set `VK_ICD_FILENAMES` in the settings panel.
+Auto-update is wired through [cargo-dist](https://github.com/axodotdev/cargo-dist) + [axoupdater](https://github.com/axodotdev/axoupdater) (gated behind the `auto-update` feature on `subtly-ui`). Set up the release pipeline once with `cargo dist init`; tag pushes then produce signed artifacts and a `dist-manifest.json` the running app reads on startup.
 
-## All-in-one packaging (AIO)
+macOS notarization (run inside CI after signing):
 
-To ship a single installer with everything bundled, place these assets per platform:
-
-- `resources/runtime-assets/bin/whisper-cli` (or `.exe`)
-- `resources/runtime-assets/bin/ffmpeg` (or `.exe`)
-- `resources/runtime-assets/models/ggml-large-v3.bin`
-- `resources/runtime-assets/models/ggml-silero-v6.2.0.bin`
-
-During packaging, electron-builder copies them into `runtime/assets` next to the runtime binary. The runtime auto-discovers bundled assets, so end users do not need to install dependencies manually.
-
-## CI asset download (checksummed)
-
-Use the manifest-driven downloader to fetch binaries/models per platform:
-
-```
-pnpm assets:download
+```sh
+APPLE_ID=... APPLE_APP_SPECIFIC_PASSWORD=... APPLE_TEAM_ID=... \
+  cargo run -p xtask -- notarize path/to/Subtly.app
 ```
 
-Edit `scripts/assets-manifest.json` with platform-specific URLs and SHA256 values. The script verifies checksums and sets executable bits on macOS/Linux.
+## Optional features
 
-## Supported inputs
+| Feature | Effect |
+|---|---|
+| `crash-reporting` | Initialize Sentry from `SENTRY_DSN` |
+| `auto-update`     | Run axoupdater on startup |
 
-- Video: `.mp4`, `.mkv`, `.mov`
-- Audio: `.wav`, `.mp3`, `.m4a`
+## Settings
 
-The runtime writes `.srt` files alongside the input file by default (or to the output directory you specify).
+Persisted to `${config_dir}/app.aer.Subtly/settings.json`. Models live in
+`${data_dir}/app.aer.Subtly/models/`.
 
-## macOS note
+## Architecture note
 
-wgpu uses Metal on macOS. This preserves the "GPU acceleration everywhere" goal, while still using Vulkan on Windows/Linux. If you need strict Vulkan on macOS, swap to MoltenVK and manage the loader + dylibs in the app bundle.
-
-## Observability
-
-- Main process Sentry uses `SENTRY_DSN`.
-- Renderer Sentry uses `VITE_SENTRY_DSN`.
-
-## Testing & coverage
-
-JS/renderer/main/preload coverage is enforced at 100% with Vitest + React Testing Library (jsdom):
-
-```
-pnpm test
-```
-
-Rust runtime coverage is enforced at 100% via `cargo llvm-cov` (install once with `cargo install cargo-llvm-cov`):
-
-```
-pnpm test:rust
-```
-
-Run both in one go:
-
-```
-pnpm test:all
-```
-
-The existing end-to-end pipeline check is still available:
-
-```
-pnpm test:e2e
-```
+Earlier versions ran the GPU code as a separate `gpu-runtime` child process so a
+Vulkan ICD panic couldn't crash the React UI. The Iced rewrite merges device
+enumeration into the app process — but `whisper-cli` and `ffmpeg` are still
+spawned as subprocesses, so the heavy compute remains crash-isolated. Enumeration
+and the smoke test are wrapped in `catch_unwind` to harden against flaky drivers.

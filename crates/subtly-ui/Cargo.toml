@@ -1,0 +1,66 @@
+[package]
+name = "subtly-ui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Subtly — GPU-accelerated Whisper subtitle generator (Iced UI)."
+
+[[bin]]
+name = "subtly"
+path = "src/main.rs"
+
+[dependencies]
+subtly-core = { path = "../subtly-core" }
+iced = { version = "0.13", features = ["tokio", "advanced", "image"] }
+tokio-stream = "0.1"
+axoupdater = { version = "0.9", default-features = false, features = ["github_releases", "tokio"], optional = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "tokio"] }
+sentry = { workspace = true, optional = true }
+single-instance = { workspace = true }
+once_cell = { workspace = true }
+futures = { workspace = true }
+uuid = { workspace = true }
+
+[features]
+default = []
+crash-reporting = ["dep:sentry"]
+auto-update = ["dep:axoupdater"]
+
+# cargo-packager configuration. Run with `cargo packager --release`.
+# Docs: https://docs.crabnebula.dev/packager/
+[package.metadata.packager]
+product-name = "Subtly"
+identifier = "app.aer.subtly"
+description = "GPU-accelerated Whisper subtitle generator"
+long-description = "Subtly transcribes video and audio files into subtitles using OpenAI Whisper with Vulkan/Metal/CPU backends."
+homepage = "https://subtly.aer.app"
+authors = ["Prakhar Shukla <prafiles@gmail.com>"]
+icons = ["../../resources/icon.png"]
+category = "Utility"
+out-dir = "../../release"
+# Per-platform `formats` are picked by cargo-packager based on host OS.
+resources = [
+    { src = "../../resources/runtime-assets/bin/ffmpeg", target = "bin/ffmpeg" },
+    { src = "../../resources/runtime-assets/bin/ffmpeg.exe", target = "bin/ffmpeg.exe" },
+    { src = "../../resources/runtime-assets/bin/whisper-cli", target = "bin/whisper-cli" },
+    { src = "../../resources/runtime-assets/bin/whisper-cli.exe", target = "bin/whisper-cli.exe" },
+    { src = "../../resources/runtime-assets/models/silero_vad.bin", target = "models/silero_vad.bin" },
+]
+
+[package.metadata.packager.macos]
+entitlements = "../../resources/entitlements.mac.plist"
+minimum-system-version = "10.15"
+
+[package.metadata.packager.deb]
+depends = ["libvulkan1", "libgl1"]
+section = "sound"
+
+[package.metadata.packager.nsis]
+installer-mode = "both"
