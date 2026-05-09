@@ -63,17 +63,22 @@ jobs:
         if: matrix.os == 'windows-2022'
         shell: pwsh
         run: |
-          choco install -y cmake pkgconfiglite --allow-empty-checksums
+          # cmake is pre-installed on windows-2022 runners (3.x). Installing cmake
+          # via choco would give cmake 4.x, which tightened CMP0200: a missing
+          # IMPORTED_LOCATION_RELEASE on Vulkan::Vulkan (Vulkan SDK only ships
+          # RelWithDebInfo/Debug) that was previously a warning is now a hard error.
+          choco install -y pkgconfiglite --allow-empty-checksums
           # whisper.cpp's Vulkan shader ExternalProject creates deeply-nested paths that
           # exceed MAX_PATH (260 chars) from the default D:\a\<repo>\<repo>\target\ base.
           # C:\cbt keeps all intermediate paths well within the limit.
           "CARGO_TARGET_DIR=C:\cbt" | Out-File -FilePath $env:GITHUB_ENV -Append
-          # Newer Vulkan SDKs ship cmake config files that define Vulkan::Vulkan with only
-          # a RelWithDebInfo configuration. With the default CMP0200 policy cmake falls back
-          # to "(none)", leaving INTERFACE_INCLUDE_DIRECTORIES empty for Release builds and
-          # causing #include <vulkan/vulkan.hpp> to fail. This mapping tells cmake to use
-          # the RelWithDebInfo config of imported targets (Vulkan::Vulkan) for Release builds.
+          # The Vulkan SDK cmake config only ships RelWithDebInfo + Debug locations for
+          # Vulkan::Vulkan; there is no IMPORTED_LOCATION_RELEASE. cmake 4.x (CMP0200)
+          # makes this a hard error for Release builds. CMP0200=NEW tells cmake to pick the
+          # nearest available config (RelWithDebInfo) instead of failing. The explicit map
+          # is a belt-and-suspenders fallback for cmake versions that predate CMP0200.
           # whisper-rs-sys build.rs forwards all CMAKE_* env vars to cmake as -D flags.
+          "CMAKE_POLICY_DEFAULT_CMP0200=NEW" | Out-File -FilePath $env:GITHUB_ENV -Append
           "CMAKE_MAP_IMPORTED_CONFIG_RELEASE=RelWithDebInfo" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Install Vulkan SDK (Linux)
