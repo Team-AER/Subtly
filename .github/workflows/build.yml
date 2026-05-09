@@ -350,21 +350,38 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          # Phase 3: build the .dmg around the (now-stapled) .app.
-          cargo packager --release --target ${{ matrix.target }} --formats dmg
+          set -euo pipefail
+          shopt -s nullglob
+          apps=(release/*.app)
+          if [ ${#apps[@]} -eq 0 ]; then
+            echo "::error::No signed .app found in release/ — .app phase must have succeeded"
+            exit 1
+          fi
+          APP="${apps[0]}"
 
-          # Phase 4: notarize + staple the .dmg itself so Gatekeeper trusts the
+          VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*= *"\(.*\)"/\1/')
+          ARCH=$(echo "${{ matrix.target }}" | cut -d- -f1)
+          DMG="release/Subtly_${VERSION}_${ARCH}.dmg"
+
+          # Phase 3: wrap the already-signed, stapled .app in a DMG using
+          # hdiutil directly. We do NOT use `cargo packager --formats dmg`
+          # here because cargo-packager rebuilds the .app as an intermediate
+          # step, which discards all prior signing work.
+          echo "• Creating $DMG from $APP"
+          TMP_SRC="$(mktemp -d)"
+          trap 'rm -rf "$TMP_SRC"' EXIT
+          cp -R "$APP" "$TMP_SRC/"
+          ln -s /Applications "$TMP_SRC/Applications"
+          hdiutil create \
+            -volname "Subtly" \
+            -srcfolder "$TMP_SRC" \
+            -ov -format UDZO \
+            "$DMG"
+
+          # Phase 4: notarize + staple the .dmg so Gatekeeper trusts the
           # disk image offline as well.
           if [ -n "$APPLE_ID" ] && [ -n "$APPLE_APP_SPECIFIC_PASSWORD" ] && [ -n "$APPLE_TEAM_ID" ]; then
-            shopt -s nullglob
-            dmgs=(release/*.dmg)
-            if [ ${#dmgs[@]} -eq 0 ]; then
-              echo "::error::cargo-packager produced no .dmg"
-              exit 1
-            fi
-            for dmg in "${dmgs[@]}"; do
-              cargo run -p xtask --release -- notarize "$dmg"
-            done
+            cargo run -p xtask --release -- notarize "$DMG"
           else
             echo "::warning::Skipping .dmg notarization — Apple credentials not provided"
           fi
