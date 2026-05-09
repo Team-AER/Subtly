@@ -1,6 +1,7 @@
 //! User-facing settings shared across UI and core. Persists to
 //! `${config_dir}/subtly/settings.json` so they survive restart.
 
+use crate::output::replace::ReplaceRule;
 use crate::transcribe::TranscribeParams;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -29,6 +30,26 @@ pub struct Settings {
     pub flash_attn: bool,
     pub export_formats: Vec<String>,
     pub dry_run: bool,
+
+    /// Initial prompt biasing the decoder. Use this to teach Whisper
+    /// proper nouns / brand names / domain jargon up-front so the
+    /// transcript spells them right.
+    pub initial_prompt: String,
+    /// Find/replace rules applied to every segment before output writers
+    /// run. Empty by default; users add entries as they spot recurring
+    /// mistranscriptions.
+    pub replacements: Vec<ReplaceRule>,
+    /// When true, run the cue resegmenter after inference. On by default
+    /// because Whisper's native cue boundaries are too irregular for
+    /// subtitle players.
+    pub resegment_enabled: bool,
+    pub max_cue_chars: u32,
+    pub max_cue_ms: u32,
+    pub min_cue_ms: u32,
+    /// Whether to ask Whisper for per-token timestamps. Required by the
+    /// resegmenter; turning it off saves a small amount of work but
+    /// disables word-aligned cue boundaries.
+    pub token_timestamps: bool,
 }
 
 impl Default for Settings {
@@ -54,6 +75,13 @@ impl Default for Settings {
             flash_attn: crate::whisper::flash_attention_is_safe(),
             export_formats: vec!["srt".to_string()],
             dry_run: false,
+            initial_prompt: String::new(),
+            replacements: Vec::new(),
+            resegment_enabled: true,
+            max_cue_chars: 84,
+            max_cue_ms: 6000,
+            min_cue_ms: 800,
+            token_timestamps: true,
         }
     }
 }
@@ -131,6 +159,13 @@ impl Settings {
             flash_attn: Some(self.flash_attn),
             output_formats: Some(self.export_formats.clone()),
             dry_run: Some(self.dry_run),
+            initial_prompt: Some(self.initial_prompt.clone()),
+            replacements: Some(self.replacements.clone()),
+            resegment_enabled: Some(self.resegment_enabled),
+            max_cue_chars: Some(self.max_cue_chars),
+            max_cue_ms: Some(self.max_cue_ms),
+            min_cue_ms: Some(self.min_cue_ms),
+            token_timestamps: Some(self.token_timestamps),
         })
     }
 }

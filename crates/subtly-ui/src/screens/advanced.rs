@@ -154,7 +154,44 @@ pub fn view<'a>(app: &'a App) -> Element<'a, Message> {
         .into(),
     );
 
-    column![runtime, pipeline, vad]
+    let cue_layout = group(
+        "Subtitle layout",
+        "Repackages Whisper's irregular cues into evenly sized subtitle blocks. Needs token timestamps.",
+        column![
+            row![
+                checkbox("Resegment cues for readability", s.resegment_enabled)
+                    .on_toggle(Message::ToggleResegmentEnabled)
+                    .size(14)
+                    .text_size(12),
+                checkbox("Token timestamps", s.token_timestamps)
+                    .on_toggle(Message::ToggleTokenTimestamps)
+                    .size(14)
+                    .text_size(12),
+            ]
+            .spacing(20),
+            two_col(
+                num_field(
+                    "Max cue chars",
+                    s.max_cue_chars.to_string(),
+                    Message::SetMaxCueChars,
+                ),
+                num_field(
+                    "Max cue duration (ms)",
+                    s.max_cue_ms.to_string(),
+                    Message::SetMaxCueMs,
+                ),
+            ),
+            num_field(
+                "Min cue duration (ms)",
+                s.min_cue_ms.to_string(),
+                Message::SetMinCueMs,
+            ),
+        ]
+        .spacing(10)
+        .into(),
+    );
+
+    column![runtime, pipeline, cue_layout, vad]
         .spacing(20)
         .max_width(820.0)
         .into()

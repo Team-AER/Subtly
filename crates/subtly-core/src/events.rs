@@ -10,6 +10,11 @@ pub enum Event {
     /// Lets the UI stream subtitles into a live preview pane while a file
     /// is still being processed.
     Segment(SegmentEvent),
+    /// The language whisper picked for this file. Emitted once per file
+    /// after inference returns. When `Settings::language` is "auto" this
+    /// reflects the actual detection; for an explicit language it just
+    /// echoes that code.
+    DetectedLanguage(DetectedLanguage),
     OutputWritten(String),
     Done,
 }
@@ -27,4 +32,12 @@ pub struct SegmentEvent {
     pub start_ms: i64,
     pub end_ms: i64,
     pub text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DetectedLanguage {
+    /// ISO 639-1 short code, e.g. `"en"`, `"hi"`. Whisper's full set.
+    pub code: String,
+    /// Human-readable name, e.g. `"english"`. Already lower-cased upstream.
+    pub name: String,
 }

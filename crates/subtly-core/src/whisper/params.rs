@@ -19,6 +19,14 @@ pub struct WhisperConfig {
     pub vad_min_speech_ms: u32,
     pub vad_min_sil_ms: u32,
     pub vad_pad_ms: u32,
+    /// Optional initial prompt — biases the decoder toward this text. Used
+    /// for custom vocabulary (proper nouns, jargon, brand names). Empty =
+    /// no prompt; whitespace-only is treated as empty.
+    pub initial_prompt: String,
+    /// Whether to compute per-token timestamps. Required for the cue
+    /// resegmenter to produce word-aligned subtitle boundaries; otherwise
+    /// it falls back to whisper's native per-segment boundaries.
+    pub token_timestamps: bool,
 }
 
 /// Flash attention is only enabled by default on the Metal build.

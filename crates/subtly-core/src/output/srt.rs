@@ -46,6 +46,7 @@ pub fn dedup(segments: &[Segment], merge_gap_sec: f32) -> Vec<Segment> {
             start_ms: seg.start_ms,
             end_ms: seg.end_ms,
             text: trimmed.to_string(),
+            words: seg.words.clone(),
         });
     }
     merged
@@ -74,11 +75,7 @@ mod tests {
     use super::*;
 
     fn seg(start: i64, end: i64, text: &str) -> Segment {
-        Segment {
-            start_ms: start,
-            end_ms: end,
-            text: text.to_string(),
-        }
+        Segment::new(start, end, text)
     }
 
     #[test]

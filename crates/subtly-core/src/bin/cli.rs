@@ -4,7 +4,8 @@
 //!   subtly-cli ping
 //!   subtly-cli list-devices
 //!   subtly-cli smoke
-//!   subtly-cli transcribe <input> [--output-dir <dir>] [--model <path>] [--vad <path>] [--dry-run]
+//!   subtly-cli transcribe <input> [--output-dir <dir>] [--model <path>] [--vad <path>]
+//!                                  [--dry-run] [--prompt <text>] [--no-resegment]
 
 use std::env;
 use subtly_core::{
@@ -49,6 +50,8 @@ async fn main() -> anyhow::Result<()> {
                     "--model" => params.model_path = args.next(),
                     "--vad" => params.vad_model_path = args.next(),
                     "--dry-run" => params.dry_run = Some(true),
+                    "--prompt" => params.initial_prompt = args.next(),
+                    "--no-resegment" => params.resegment_enabled = Some(false),
                     other => eprintln!("ignoring unknown flag: {other}"),
                 }
             }
@@ -62,6 +65,9 @@ async fn main() -> anyhow::Result<()> {
                         Event::Progress(p) => println!("[progress] {p:?}"),
                         Event::Segment(s) => {
                             println!("[segment] {}-{} {}", s.start_ms, s.end_ms, s.text)
+                        }
+                        Event::DetectedLanguage(d) => {
+                            println!("[language] {} ({})", d.code, d.name)
                         }
                         Event::OutputWritten(path) => println!("[output] {path}"),
                         Event::Done => println!("[done]"),

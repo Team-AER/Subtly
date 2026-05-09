@@ -4,8 +4,8 @@
 
 use super::params::{flash_attention_is_safe, WhisperConfig};
 use crate::audio::TARGET_SAMPLE_RATE;
-use crate::events::{Event, ProgressUpdate, SegmentEvent};
-use crate::output::Segment;
+use crate::events::{DetectedLanguage, Event, ProgressUpdate, SegmentEvent};
+use crate::output::{Segment, Word};
 use anyhow::{anyhow, Context, Result};
 use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -65,8 +65,23 @@ fn run_blocking(
     params.set_no_speech_thold(config.no_speech_thold);
     params.set_max_len(config.max_len_chars as i32);
     params.set_split_on_word(config.split_on_word);
+    params.set_token_timestamps(config.token_timestamps);
     if config.max_context > 0 {
         params.set_n_max_text_ctx(config.max_context as i32);
+    }
+    // Initial prompt biases the decoder toward user-supplied vocabulary
+    // (names, brands, jargon). whisper-rs holds a borrow into the &str for
+    // the lifetime of `params`, so the source string must outlive the
+    // `state.full(...)` call below — keep `prompt_owned` in scope until
+    // after inference returns.
+    let prompt_trimmed = config.initial_prompt.trim();
+    let prompt_owned = if prompt_trimmed.is_empty() {
+        None
+    } else {
+        Some(prompt_trimmed.to_string())
+    };
+    if let Some(p) = prompt_owned.as_deref() {
+        params.set_initial_prompt(p);
     }
 
     if !config.vad_model_path.is_empty() && std::path::Path::new(&config.vad_model_path).exists() {
@@ -165,18 +180,103 @@ fn run_blocking(
         if trimmed.is_empty() {
             continue;
         }
+        let words = if config.token_timestamps {
+            collect_words(&seg)
+        } else {
+            Vec::new()
+        };
         out.push(Segment {
             start_ms,
             end_ms,
             text: trimmed,
+            words,
         });
     }
+
+    // Surface the detected language (only meaningful for `auto`; for an
+    // explicit language code whisper.cpp echoes that code back). UI uses
+    // this to confirm Whisper picked the language the user expected.
+    let lang_id = state.full_lang_id_from_state();
+    if lang_id >= 0 {
+        if let Some(code) = whisper_rs::get_lang_str(lang_id) {
+            let name = whisper_rs::get_lang_str_full(lang_id)
+                .unwrap_or(code)
+                .to_string();
+            let _ = events.try_send(Event::DetectedLanguage(DetectedLanguage {
+                code: code.to_string(),
+                name,
+            }));
+        }
+    }
+
     let _ = events.try_send(Event::Progress(ProgressUpdate {
         progress: Some(100),
         phase: Some("Transcribing".to_string()),
         ..Default::default()
     }));
+    drop(prompt_owned);
     Ok(out)
+}
+
+/// Stitch sub-word tokens into whitespace-delimited words with timing
+/// taken from the first/last token of each word.
+///
+/// Whisper emits special tokens (e.g. `[_BEG_]`, `[_TT_*]`, `<|...|>`) which
+/// we drop, plus regular text tokens. By convention a leading-space token
+/// marks the start of a new word; tokens without a leading space are stuck
+/// to the previous one (BPE sub-word pieces).
+fn collect_words(seg: &whisper_rs::WhisperSegment<'_>) -> Vec<Word> {
+    let n = seg.n_tokens();
+    let mut words: Vec<Word> = Vec::new();
+    let mut buf = String::new();
+    let mut buf_start: Option<i64> = None;
+    let mut buf_end: i64 = 0;
+    for j in 0..n {
+        let Some(tok) = seg.get_token(j) else {
+            continue;
+        };
+        let text = match tok.to_str_lossy() {
+            Ok(s) => s.into_owned(),
+            Err(_) => continue,
+        };
+        // Drop whisper special tokens — they appear inside `<|...|>` brackets
+        // and carry no transcribed audio.
+        if text.starts_with('[') || text.starts_with('<') {
+            continue;
+        }
+        let data = tok.token_data();
+        let starts_word = text.starts_with(' ') || text.starts_with('\n');
+        if starts_word && !buf.is_empty() {
+            if let Some(s) = buf_start.take() {
+                let trimmed = buf.trim().to_string();
+                if !trimmed.is_empty() {
+                    words.push(Word {
+                        start_ms: s * 10,
+                        end_ms: buf_end * 10,
+                        text: trimmed,
+                    });
+                }
+            }
+            buf.clear();
+        }
+        if buf_start.is_none() {
+            // Token timestamps are in centiseconds (matching whisper.cpp's
+            // segment timestamps). Convert to ms when emitting.
+            buf_start = Some(data.t0.max(0));
+        }
+        buf.push_str(&text);
+        buf_end = data.t1.max(buf_end);
+    }
+    if !buf.trim().is_empty() {
+        if let Some(s) = buf_start {
+            words.push(Word {
+                start_ms: s * 10,
+                end_ms: buf_end * 10,
+                text: buf.trim().to_string(),
+            });
+        }
+    }
+    words
 }
 
 /// FFI abort callback. The user_data pointer is an `Arc<AtomicBool>` raw

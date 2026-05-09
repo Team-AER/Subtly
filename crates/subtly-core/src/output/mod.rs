@@ -7,6 +7,8 @@
 
 mod csv;
 mod json;
+pub mod replace;
+pub mod resegment;
 mod srt;
 mod txt;
 mod vtt;
@@ -20,6 +22,29 @@ pub struct Segment {
     pub start_ms: i64,
     pub end_ms: i64,
     pub text: String,
+    /// Word-aligned timing produced by the engine when token timestamps
+    /// are enabled. Empty when not available; downstream code (resegmenter)
+    /// must fall back gracefully.
+    #[serde(default)]
+    pub words: Vec<Word>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Word {
+    pub start_ms: i64,
+    pub end_ms: i64,
+    pub text: String,
+}
+
+impl Segment {
+    pub fn new(start_ms: i64, end_ms: i64, text: impl Into<String>) -> Self {
+        Self {
+            start_ms,
+            end_ms,
+            text: text.into(),
+            words: Vec::new(),
+        }
+    }
 }
 
 /// Write all requested formats. Each format is keyed by extension

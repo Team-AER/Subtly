@@ -1,6 +1,8 @@
 //! Workspace screen — the primary "transcribe a file" surface.
 
-use iced::widget::{button, column, container, progress_bar, row, text, text_input, Row, Space};
+use iced::widget::{
+    button, checkbox, column, container, progress_bar, row, text, text_input, Column, Row, Space,
+};
 use iced::{Alignment, Element, Length};
 
 use crate::app::{App, Message, Screen};
@@ -63,6 +65,18 @@ pub fn view<'a>(app: &'a App) -> Element<'a, Message> {
         format_selector(s, busy).into(),
     );
 
+    let prompt_block = section(
+        "Custom vocabulary",
+        "Optional. Paste names, brands, or jargon you want spelled correctly. Whisper biases the transcript toward this text.",
+        prompt_input(s, busy),
+    );
+
+    let replacements_block = section(
+        "Find & replace",
+        "Optional. Fix recurring mistranscriptions across every output format.",
+        replacements_view(s, busy),
+    );
+
     // Model & device summary
     let whisper_ok = s
         .selected_model
@@ -88,20 +102,25 @@ pub fn view<'a>(app: &'a App) -> Element<'a, Message> {
         .map(|d| format!("Device: {} ({})", d.name, d.backend))
         .unwrap_or_else(|| "No device".to_string());
 
-    let context_chips = row![
-        chip(&model_label, whisper_ok),
-        chip(
-            if vad_ok {
-                "VAD: installed"
-            } else {
-                "VAD: missing"
-            },
-            vad_ok,
-        ),
-        chip(&device_label, app.selected_device.is_some()),
-    ]
-    .spacing(8)
-    .wrap();
+    let mut chips_row: Row<'_, Message> = Row::new().spacing(8);
+    chips_row = chips_row.push(chip(&model_label, whisper_ok));
+    chips_row = chips_row.push(chip(
+        if vad_ok {
+            "VAD: installed"
+        } else {
+            "VAD: missing"
+        },
+        vad_ok,
+    ));
+    chips_row = chips_row.push(chip(&device_label, app.selected_device.is_some()));
+    if let Some(d) = &app.detected_language {
+        // Surface what Whisper actually picked. With language=auto this is
+        // the detection result; with an explicit code it's the echo. Either
+        // way it's the line that turns "did Whisper hear me right?" into a
+        // clear yes/no the user can spot at a glance.
+        chips_row = chips_row.push(chip(&format!("Detected: {} ({})", d.name, d.code), true));
+    }
+    let context_chips = chips_row.wrap();
 
     // Action area: either a Generate button + helper, or an inline progress card.
     let action_area: Element<'_, Message> = if let Some(progress) = &app.transcribe_progress {
@@ -152,12 +171,92 @@ pub fn view<'a>(app: &'a App) -> Element<'a, Message> {
         input_block,
         output_block,
         formats_block,
+        prompt_block,
+        replacements_block,
         context_chips,
         action_area,
     ]
     .spacing(20)
     .max_width(820.0)
     .into()
+}
+
+fn prompt_input<'a>(s: &subtly_core::settings::Settings, busy: bool) -> Element<'a, Message> {
+    let mut input = text_input(
+        "e.g. Areca palm, Subtly, Iced. Names and jargon Whisper might miss.",
+        &s.initial_prompt,
+    )
+    .padding(10)
+    .style(t::text_input_style);
+    if !busy {
+        input = input.on_input(Message::SetInitialPrompt);
+    }
+    input.into()
+}
+
+fn replacements_view<'a>(
+    s: &subtly_core::settings::Settings,
+    busy: bool,
+) -> Element<'a, Message> {
+    let mut col: Column<'_, Message> = Column::new().spacing(8);
+    if s.replacements.is_empty() {
+        col = col.push(
+            text("No rules yet. Add one to fix a recurring transcription error.".to_string())
+                .size(11)
+                .color(t::TEXT_FAINT),
+        );
+    } else {
+        for (idx, rule) in s.replacements.iter().enumerate() {
+            let mut from_input = text_input("Find (e.g. Eryka palm)", &rule.from)
+                .padding(8)
+                .style(t::text_input_style);
+            let mut to_input = text_input("Replace with (e.g. Areca palm)", &rule.to)
+                .padding(8)
+                .style(t::text_input_style);
+            if !busy {
+                from_input = from_input.on_input(move |v| Message::SetReplacementFrom(idx, v));
+                to_input = to_input.on_input(move |v| Message::SetReplacementTo(idx, v));
+            }
+            let mut remove_btn = button(text("Remove".to_string()).size(11))
+                .padding([6, 10])
+                .style(t::ghost_button);
+            if !busy {
+                remove_btn = remove_btn.on_press(Message::RemoveReplacement(idx));
+            }
+            let case_box = checkbox("Case", rule.case_sensitive)
+                .size(13)
+                .text_size(11)
+                .on_toggle(move |v| Message::ToggleReplacementCaseSensitive(idx, v));
+            let word_box = checkbox("Whole word", rule.whole_word)
+                .size(13)
+                .text_size(11)
+                .on_toggle(move |v| Message::ToggleReplacementWholeWord(idx, v));
+            let row = column![
+                row![
+                    container(from_input).width(Length::FillPortion(1)),
+                    container(to_input).width(Length::FillPortion(1)),
+                ]
+                .spacing(8),
+                row![
+                    case_box,
+                    word_box,
+                    Space::with_width(Length::Fill),
+                    remove_btn,
+                ]
+                .spacing(12)
+                .align_y(Alignment::Center),
+            ]
+            .spacing(6);
+            col = col.push(container(row).style(t::surface_inset).padding(10));
+        }
+    }
+    let mut add_btn = button(text("Add rule".to_string()).size(12))
+        .padding([8, 14])
+        .style(t::secondary_button);
+    if !busy {
+        add_btn = add_btn.on_press(Message::AddReplacement);
+    }
+    col.push(add_btn).into()
 }
 
 fn progress_card<'a>(

@@ -5,6 +5,8 @@
 use crate::audio::decode_to_mono_16k;
 use crate::events::{Event, ProgressUpdate};
 use crate::models::DEFAULT_WHISPER_MODEL_FILENAME;
+use crate::output::replace::ReplaceRule;
+use crate::output::resegment::{self, ResegmentConfig};
 use crate::output::{self, Segment};
 use crate::paths::{ensure_path_exists, resolve_asset_dir, resolve_optional_path};
 use crate::whisper::{transcribe_samples, WhisperConfig};
@@ -38,6 +40,13 @@ pub struct TranscribeParams {
     pub flash_attn: Option<bool>,
     pub output_formats: Option<Vec<String>>,
     pub dry_run: Option<bool>,
+    pub initial_prompt: Option<String>,
+    pub replacements: Option<Vec<ReplaceRule>>,
+    pub resegment_enabled: Option<bool>,
+    pub max_cue_chars: Option<u32>,
+    pub max_cue_ms: Option<u32>,
+    pub min_cue_ms: Option<u32>,
+    pub token_timestamps: Option<bool>,
 }
 
 #[derive(Debug)]
@@ -63,6 +72,13 @@ pub struct TranscribeConfig {
     pub flash_attn: bool,
     pub output_formats: Vec<String>,
     pub dry_run: bool,
+    pub initial_prompt: String,
+    pub replacements: Vec<ReplaceRule>,
+    pub resegment_enabled: bool,
+    pub max_cue_chars: u32,
+    pub max_cue_ms: u32,
+    pub min_cue_ms: u32,
+    pub token_timestamps: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -114,6 +130,13 @@ impl TranscribeParams {
                 .output_formats
                 .unwrap_or_else(|| vec!["srt".to_string()]),
             dry_run: self.dry_run.unwrap_or(false),
+            initial_prompt: self.initial_prompt.unwrap_or_default(),
+            replacements: self.replacements.unwrap_or_default(),
+            resegment_enabled: self.resegment_enabled.unwrap_or(true),
+            max_cue_chars: self.max_cue_chars.unwrap_or(84),
+            max_cue_ms: self.max_cue_ms.unwrap_or(6000),
+            min_cue_ms: self.min_cue_ms.unwrap_or(800),
+            token_timestamps: self.token_timestamps.unwrap_or(true),
         })
     }
 }
@@ -218,6 +241,8 @@ pub async fn transcribe(
         )
         .await?;
 
+        let segments = post_process(segments, &config);
+
         write_outputs(&output_base, &segments, &config, &events, &mut outputs).await?;
     }
 
@@ -226,6 +251,27 @@ pub async fn transcribe(
         jobs: outputs.len(),
         outputs,
     })
+}
+
+/// Apply the resegmenter (cue boundary cleanup) and the user's find/replace
+/// dictionary to the engine's segment list. Order matters: resegment first
+/// so word-boundary breaks operate on the verbatim transcript, then apply
+/// replacements so corrected text shows up in every output format.
+fn post_process(mut segments: Vec<Segment>, config: &TranscribeConfig) -> Vec<Segment> {
+    if config.resegment_enabled {
+        segments = resegment::run(
+            &segments,
+            ResegmentConfig {
+                max_chars: config.max_cue_chars,
+                max_ms: config.max_cue_ms,
+                min_ms: config.min_cue_ms,
+            },
+        );
+    }
+    if !config.replacements.is_empty() {
+        crate::output::replace::apply(&mut segments, &config.replacements);
+    }
+    segments
 }
 
 async fn write_outputs(
@@ -268,6 +314,10 @@ fn build_whisper_config(c: &TranscribeConfig) -> WhisperConfig {
         vad_min_speech_ms: c.vad_min_speech_ms,
         vad_min_sil_ms: c.vad_min_sil_ms,
         vad_pad_ms: c.vad_pad_ms,
+        initial_prompt: c.initial_prompt.clone(),
+        // Token timestamps default on whenever the resegmenter is on, since
+        // the resegmenter needs them. We still respect an explicit override.
+        token_timestamps: c.token_timestamps || c.resegment_enabled,
     }
 }
 
@@ -347,5 +397,52 @@ mod tests {
         assert_eq!(c.language, "auto");
         assert!(!c.translate);
         assert_eq!(c.flash_attn, crate::whisper::flash_attention_is_safe());
+        assert!(c.resegment_enabled);
+        assert!(c.token_timestamps);
+        assert_eq!(c.max_cue_chars, 84);
+        assert!(c.initial_prompt.is_empty());
+        assert!(c.replacements.is_empty());
+    }
+
+    #[test]
+    fn post_process_runs_resegment_then_replace() {
+        let cfg = TranscribeConfig {
+            input_path: PathBuf::from("/tmp/x"),
+            output_dir: None,
+            model_path: String::new(),
+            vad_model_path: String::new(),
+            threads: 1,
+            beam_size: 1,
+            best_of: 1,
+            max_len_chars: 60,
+            split_on_word: true,
+            vad_threshold: 0.0,
+            vad_min_speech_ms: 0,
+            vad_min_sil_ms: 0,
+            vad_pad_ms: 0,
+            no_speech_thold: 0.0,
+            max_context: 0,
+            dedup_merge_gap_sec: 0.0,
+            translate: false,
+            language: "auto".into(),
+            flash_attn: false,
+            output_formats: vec!["srt".into()],
+            dry_run: false,
+            initial_prompt: String::new(),
+            replacements: vec![ReplaceRule {
+                from: "eryka".into(),
+                to: "Areca".into(),
+                case_sensitive: false,
+                whole_word: true,
+            }],
+            resegment_enabled: false,
+            max_cue_chars: 84,
+            max_cue_ms: 6000,
+            min_cue_ms: 0,
+            token_timestamps: false,
+        };
+        let segs = vec![Segment::new(0, 1000, "An eryka palm")];
+        let out = post_process(segs, &cfg);
+        assert_eq!(out[0].text, "An Areca palm");
     }
 }

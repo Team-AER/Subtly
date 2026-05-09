@@ -10,8 +10,9 @@ use tokio::sync::{mpsc, watch};
 
 use subtly_core::devices::{list_devices, ping, smoke_test, DeviceInfo, PingResult};
 use subtly_core::download::{delete_model, download_model, model_path_if_present};
-use subtly_core::events::Event;
+use subtly_core::events::{DetectedLanguage, Event};
 use subtly_core::models::{installed_models, InstalledModel};
+use subtly_core::output::replace::ReplaceRule;
 use subtly_core::paths::models_directory;
 use subtly_core::settings::{load_settings, save_settings, Settings};
 use subtly_core::transcribe::{transcribe, TranscribeOutcome};
@@ -77,6 +78,9 @@ pub struct App {
     pub transcribe_progress: Option<TranscribeProgress>,
     pub downloading: HashMap<String, DownloadInfo>,
     pub log_content: text_editor::Content,
+    /// Last language Whisper detected for the running/most-recent job.
+    /// Cleared when a new transcription starts.
+    pub detected_language: Option<DetectedLanguage>,
     transcribe_cancel: Option<watch::Sender<bool>>,
     download_cancel: HashMap<String, watch::Sender<bool>>,
 }
@@ -119,6 +123,20 @@ pub enum Message {
     ToggleTranslate(bool),
     ToggleDryRun(bool),
 
+    SetInitialPrompt(String),
+    AddReplacement,
+    RemoveReplacement(usize),
+    SetReplacementFrom(usize, String),
+    SetReplacementTo(usize, String),
+    ToggleReplacementCaseSensitive(usize, bool),
+    ToggleReplacementWholeWord(usize, bool),
+
+    ToggleResegmentEnabled(bool),
+    SetMaxCueChars(String),
+    SetMaxCueMs(String),
+    SetMinCueMs(String),
+    ToggleTokenTimestamps(bool),
+
     StartTranscribe,
     TranscribeEvent(Event),
     TranscribeFinished(Result<TranscribeOutcome, String>),
@@ -154,6 +172,7 @@ impl App {
             transcribe_progress: None,
             downloading: HashMap::new(),
             log_content: text_editor::Content::new(),
+            detected_language: None,
             transcribe_cancel: None,
             download_cancel: HashMap::new(),
         };
@@ -325,6 +344,79 @@ impl App {
             }
             Message::ToggleDryRun(v) => {
                 self.settings.dry_run = v;
+                self.persist()
+            }
+
+            Message::SetInitialPrompt(v) => {
+                self.settings.initial_prompt = v;
+                self.persist()
+            }
+            Message::AddReplacement => {
+                self.settings.replacements.push(ReplaceRule::default());
+                self.persist()
+            }
+            Message::RemoveReplacement(idx) => {
+                if idx < self.settings.replacements.len() {
+                    self.settings.replacements.remove(idx);
+                }
+                self.persist()
+            }
+            Message::SetReplacementFrom(idx, v) => {
+                if let Some(r) = self.settings.replacements.get_mut(idx) {
+                    r.from = v;
+                }
+                self.persist()
+            }
+            Message::SetReplacementTo(idx, v) => {
+                if let Some(r) = self.settings.replacements.get_mut(idx) {
+                    r.to = v;
+                }
+                self.persist()
+            }
+            Message::ToggleReplacementCaseSensitive(idx, v) => {
+                if let Some(r) = self.settings.replacements.get_mut(idx) {
+                    r.case_sensitive = v;
+                }
+                self.persist()
+            }
+            Message::ToggleReplacementWholeWord(idx, v) => {
+                if let Some(r) = self.settings.replacements.get_mut(idx) {
+                    r.whole_word = v;
+                }
+                self.persist()
+            }
+            Message::ToggleResegmentEnabled(v) => {
+                self.settings.resegment_enabled = v;
+                if v {
+                    // The resegmenter relies on word-aligned timing; flip the
+                    // dependent flag on so users don't have to know.
+                    self.settings.token_timestamps = true;
+                }
+                self.persist()
+            }
+            Message::SetMaxCueChars(v) => {
+                if let Ok(n) = v.parse() {
+                    self.settings.max_cue_chars = n;
+                }
+                self.persist()
+            }
+            Message::SetMaxCueMs(v) => {
+                if let Ok(n) = v.parse() {
+                    self.settings.max_cue_ms = n;
+                }
+                self.persist()
+            }
+            Message::SetMinCueMs(v) => {
+                if let Ok(n) = v.parse() {
+                    self.settings.min_cue_ms = n;
+                }
+                self.persist()
+            }
+            Message::ToggleTokenTimestamps(v) => {
+                self.settings.token_timestamps = v;
+                if !v {
+                    self.settings.resegment_enabled = false;
+                }
                 self.persist()
             }
 
@@ -717,6 +809,10 @@ impl App {
             Event::Segment(s) => {
                 self.add_log(format!("[{:>7.2}s] {}", s.start_ms as f32 / 1000.0, s.text));
             }
+            Event::DetectedLanguage(d) => {
+                self.add_log(format!("Detected language: {} ({})", d.name, d.code));
+                self.detected_language = Some(d);
+            }
             Event::OutputWritten(_) => {}
             Event::Done => {}
         }
@@ -751,6 +847,7 @@ impl App {
             }
         };
         self.is_transcribing = true;
+        self.detected_language = None;
         self.transcribe_progress = Some(TranscribeProgress {
             progress: 0,
             status_message: "Initializing…".to_string(),
