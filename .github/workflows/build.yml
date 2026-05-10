@@ -71,10 +71,24 @@ jobs:
           # avoid the error. --force reinstalls the cmake installer at
           # C:\Program Files\CMake, evicting whatever the runner image placed there.
           choco install -y cmake --version=3.30.8 --force --allow-downgrade --allow-empty-checksums
-          # whisper.cpp's Vulkan shader ExternalProject creates deeply-nested paths that
-          # exceed MAX_PATH (260 chars) from the default D:\a\<repo>\<repo>\target\ base.
-          # C:\cbt keeps all intermediate paths well within the limit.
+          choco install -y ninja --allow-empty-checksums
+          # whisper.cpp's Vulkan shader ExternalProject creates deeply-nested paths
+          # (vulkan-shaders-gen-prefix\src\vulkan-shaders-gen-build\CMakeFiles\
+          # CMakeScratch\TryCompile-XXXXXX\cmTC_XXXXX.dir\Debug\cmTC_XXXXX.tlog\
+          # link-rc.read.1.tlog) that exceed MAX_PATH (260 chars) even from a
+          # C:\cbt base. Enable Win32 long-path support so the OS accepts >260-char
+          # paths, and set git's longpaths flag for any submodule checkouts in
+          # third-party build scripts.
+          New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" `
+            -Name "LongPathsEnabled" -Value 1 -PropertyType DWORD -Force | Out-Null
+          git config --system core.longpaths true
           "CARGO_TARGET_DIR=C:\cbt" | Out-File -FilePath $env:GITHUB_ENV -Append
+          # Force the Ninja generator for cmake-rs (whisper-rs-sys, etc.). The
+          # default Visual Studio generator drives MSBuild's FileTracker, which
+          # fails with FTK1011 on the long TryCompile paths above even when the
+          # registry allows them, because FileTracker's tlog handling isn't fully
+          # long-path aware. Ninja writes flatter paths and doesn't use FileTracker.
+          "CMAKE_GENERATOR=Ninja" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Install Vulkan SDK (Linux)
         if: matrix.os == 'ubuntu-22.04'
@@ -110,6 +124,12 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+
+      - name: Setup MSVC developer environment (Windows)
+        if: matrix.os == 'windows-2022'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
 
       - name: Cache cargo registry & build
         uses: Swatinem/rust-cache@v2
