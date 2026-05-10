@@ -89,6 +89,12 @@ jobs:
           # registry allows them, because FileTracker's tlog handling isn't fully
           # long-path aware. Ninja writes flatter paths and doesn't use FileTracker.
           "CMAKE_GENERATOR=Ninja" | Out-File -FilePath $env:GITHUB_ENV -Append
+          # Force whisper-rs-sys's C/C++ objects to use the static MSVC CRT so
+          # they match Rust's `+crt-static` target-feature (.cargo/config.toml).
+          # See .github/cmake/win-static-crt.cmake for the full rationale —
+          # without this, the link fails with LNK2019 on __imp_fgetc / __imp_fread
+          # / etc. because cmake-rs's `-MT` is dropped by CMP0091 NEW.
+          "CMAKE_TOOLCHAIN_FILE=$env:GITHUB_WORKSPACE\.github\cmake\win-static-crt.cmake" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Install Vulkan SDK (Linux)
         if: matrix.os == 'ubuntu-22.04'
@@ -134,8 +140,15 @@ jobs:
       - name: Cache cargo registry & build
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: build-${{ matrix.os }}
-          cache-on-failure: true
+          # `-v2` invalidates the prior cache, which had whisper-rs-sys
+          # compiled with /MD (CRT mismatch with Rust's +crt-static). Bump
+          # this suffix any time the C/C++ build flags for cmake-rs deps
+          # change in a way cargo can't see (e.g. CMAKE_TOOLCHAIN_FILE).
+          shared-key: build-${{ matrix.os }}-v2
+          # Don't poison the cache when the build fails — a partially-built
+          # whisper-rs-sys with the wrong CRT will be replayed by every
+          # subsequent run and mask the real fix.
+          cache-on-failure: false
 
       - name: Install cargo-packager
         uses: taiki-e/install-action@v2
