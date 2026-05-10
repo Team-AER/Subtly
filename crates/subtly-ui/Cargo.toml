@@ -48,6 +48,12 @@ out-dir = "../../release"
 # Per-platform `formats` are picked by cargo-packager based on host OS.
 resources = [
     { src = "../../resources/runtime-assets/models/silero_vad.bin", target = "models/silero_vad.bin" },
+    # App-local VC++ runtime DLLs for Windows (vcruntime140, vcruntime140_1,
+    # msvcp140). Populated by CI from the VS install before `cargo packager`
+    # so a fresh-Windows machine without the VC++ Redistributable still runs
+    # the binary. The glob resolves to nothing on Linux/macOS, so the same
+    # config works for every target.
+    "../../resources/win-redist/*.dll",
 ]
 
 [package.metadata.packager.macos]

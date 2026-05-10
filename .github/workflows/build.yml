@@ -89,12 +89,6 @@ jobs:
           # registry allows them, because FileTracker's tlog handling isn't fully
           # long-path aware. Ninja writes flatter paths and doesn't use FileTracker.
           "CMAKE_GENERATOR=Ninja" | Out-File -FilePath $env:GITHUB_ENV -Append
-          # Force whisper-rs-sys's C/C++ objects to use the static MSVC CRT so
-          # they match Rust's `+crt-static` target-feature (.cargo/config.toml).
-          # See .github/cmake/win-static-crt.cmake for the full rationale —
-          # without this, the link fails with LNK2019 on __imp_fgetc / __imp_fread
-          # / etc. because cmake-rs's `-MT` is dropped by CMP0091 NEW.
-          "CMAKE_TOOLCHAIN_FILE=$env:GITHUB_WORKSPACE\.github\cmake\win-static-crt.cmake" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Install Vulkan SDK (Linux)
         if: matrix.os == 'ubuntu-22.04'
@@ -137,14 +131,91 @@ jobs:
         with:
           arch: x64
 
+      - name: Stage VC++ runtime DLLs for app-local deploy (Windows)
+        if: matrix.os == 'windows-2022'
+        shell: pwsh
+        run: |
+          # Without these next to subtly.exe, fresh Windows machines (no
+          # VC++ Redistributable installed) get "VCRUNTIME140.dll not found"
+          # at first launch. App-local deployment is the redistribution path
+          # Microsoft licenses for the VC runtime files.
+          #
+          # We look up the redist DLLs in this order:
+          #   1. $env:VCToolsRedistDir (set by ilammy/msvc-dev-cmd → vcvarsall)
+          #   2. recursive search of the VS install root for Microsoft.VC*.CRT
+          #   3. recursive search anywhere under C:\Program Files\Microsoft Visual Studio
+          # Step 1 is the happy path; 2 and 3 are belt-and-suspenders because
+          # vcvarsall only exports VCToolsRedistDir if the redist component is
+          # installed in this image (which has drifted across runner releases).
+          $ErrorActionPreference = "Stop"
+
+          $crtDir = $null
+          $candidates = @()
+          if ($env:VCToolsRedistDir) {
+            $candidates += (Join-Path $env:VCToolsRedistDir "x64")
+          }
+          if ($env:VCINSTALLDIR) { $candidates += $env:VCINSTALLDIR }
+          $candidates += "C:\Program Files\Microsoft Visual Studio"
+          $candidates += "C:\Program Files (x86)\Microsoft Visual Studio"
+
+          foreach ($root in $candidates) {
+            if (-not (Test-Path $root)) { continue }
+            $found = Get-ChildItem -Path $root -Directory -Recurse -ErrorAction SilentlyContinue `
+                       -Filter "Microsoft.VC*.CRT" |
+                     Where-Object { $_.FullName -match '\\x64\\' } |
+                     Sort-Object FullName -Descending |
+                     Select-Object -First 1
+            if ($found) { $crtDir = $found; break }
+          }
+          if (-not $crtDir) {
+            throw "Could not locate any Microsoft.VC*.CRT (x64) directory under: $($candidates -join ', ')"
+          }
+          Write-Host "Using VC redist from: $($crtDir.FullName)"
+
+          $dest = Join-Path $env:GITHUB_WORKSPACE "resources\win-redist"
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          foreach ($dll in @("vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll")) {
+            $src = Join-Path $crtDir.FullName $dll
+            if (-not (Test-Path $src)) {
+              throw "Expected $dll at $src but it's missing"
+            }
+            Copy-Item -Force $src $dest
+            Write-Host "✓ staged $dll"
+          }
+
+          # Also ship the Vulkan loader (vulkan-1.dll) app-local. whisper-rs-sys
+          # links vulkan-1.lib, so Windows resolves vulkan-1.dll at process
+          # startup — if a user has no Vulkan-capable GPU driver, the .exe
+          # fails to load before our Rust runtime fallback gets a chance to
+          # run. Shipping the loader means the .exe always starts; our code
+          # can then catch a clean "no Vulkan ICD found" error from whisper
+          # init and fall back to CPU (engine.rs).
+          # Vulkan loader redistribution is permitted (Apache-2.0).
+          $vkCandidates = @()
+          if ($env:VULKAN_SDK) {
+            $vkCandidates += (Join-Path $env:VULKAN_SDK "Bin\vulkan-1.dll")
+            $vkCandidates += (Join-Path $env:VULKAN_SDK "bin\vulkan-1.dll")
+          }
+          $vkCandidates += "C:\Windows\System32\vulkan-1.dll"
+          $vkLoader = $vkCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $vkLoader) {
+            throw "Could not locate vulkan-1.dll. Looked in: $($vkCandidates -join ', ')"
+          }
+          Copy-Item -Force $vkLoader $dest
+          Write-Host "✓ staged vulkan-1.dll from $vkLoader"
+
+          Write-Host ""
+          Write-Host "Final win-redist contents:"
+          Get-ChildItem $dest | Format-Table Name, Length
+
       - name: Cache cargo registry & build
         uses: Swatinem/rust-cache@v2
         with:
-          # `-v2` invalidates the prior cache, which had whisper-rs-sys
-          # compiled with /MD (CRT mismatch with Rust's +crt-static). Bump
-          # this suffix any time the C/C++ build flags for cmake-rs deps
-          # change in a way cargo can't see (e.g. CMAKE_TOOLCHAIN_FILE).
-          shared-key: build-${{ matrix.os }}-v2
+          # Bump this suffix any time the C/C++ build flags for cmake-rs
+          # deps change in a way cargo can't see. v4 = dropped +crt-static
+          # (and the toolchain file that tried to force /MT into whisper.cpp);
+          # Rust now links /MD by default, matching whisper-rs-sys's defaults.
+          shared-key: build-${{ matrix.os }}-v4
           # Don't poison the cache when the build fails — a partially-built
           # whisper-rs-sys with the wrong CRT will be replayed by every
           # subsequent run and mask the real fix.

@@ -13,6 +13,16 @@ resources/        icons, entitlements, NSIS installer script
 scripts/          assets-manifest.json, code-signing helpers
 ```
 
+## Supported platforms
+
+| OS | Versions | Notes |
+|---|---|---|
+| Windows | 10 (build 1809 / "October 2018 Update", x64) and 11 | Vulkan-capable GPU driver recommended; falls back to CPU if Vulkan is missing. Windows 7 / 8.1 are **not** supported (the binary depends on the in-box Universal CRT, which Win7/8 ship without). ARM64 Windows is not currently supported. |
+| macOS | 10.15+ (x64 / arm64) | Metal acceleration on Apple Silicon. |
+| Linux | glibc 2.31+ (Ubuntu 20.04+ or equivalent) | Needs a Vulkan loader (`libvulkan1`). |
+
+The Windows installer ships the VC++ runtime DLLs (`vcruntime140`, `vcruntime140_1`, `msvcp140`) app-locally so machines without the Visual C++ Redistributable still launch.
+
 ## Build prerequisites
 
 - Rust 1.75+

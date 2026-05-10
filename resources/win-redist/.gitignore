@@ -1,0 +1,5 @@
+# DLLs are populated by CI from the VS install on Windows.
+# Empty on Linux/macOS — cargo-packager's glob resolves to nothing there.
+*.dll
+!.gitignore
+!.gitkeep

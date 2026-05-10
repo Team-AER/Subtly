@@ -40,12 +40,34 @@ fn run_blocking(
     events: mpsc::Sender<Event>,
     cancel: watch::Receiver<bool>,
 ) -> Result<Vec<Segment>> {
-    let mut ctx_params = WhisperContextParameters::default();
-    ctx_params.use_gpu = true;
-    ctx_params.flash_attn = config.flash_attn && flash_attention_is_safe();
-
-    let ctx = WhisperContext::new_with_params(&config.model_path, ctx_params)
-        .with_context(|| format!("loading whisper model {}", config.model_path))?;
+    // Try the GPU backend (Vulkan on Linux/Windows, Metal on macOS) first;
+    // fall back to CPU if init fails. Common Windows failure modes that
+    // trigger the fallback: no Vulkan-capable driver, ICD JSON missing, or
+    // the loader couldn't enumerate any physical device. The .exe itself
+    // will still load because we ship vulkan-1.dll app-local — it's only the
+    // runtime device discovery that errors out.
+    let make_params = |use_gpu: bool| {
+        let mut p = WhisperContextParameters::default();
+        p.use_gpu = use_gpu;
+        // flash_attn is a GPU-only optimization; pin it off on the CPU path
+        // so a stale config can't poison the fallback.
+        p.flash_attn = use_gpu && config.flash_attn && flash_attention_is_safe();
+        p
+    };
+    let ctx = match WhisperContext::new_with_params(&config.model_path, make_params(true)) {
+        Ok(c) => c,
+        Err(gpu_err) => {
+            let msg = format!(
+                "GPU backend unavailable ({gpu_err}); falling back to CPU. \
+                 Transcription will be slower — install or update your GPU \
+                 driver to restore acceleration."
+            );
+            tracing::warn!("{msg}");
+            let _ = events.try_send(Event::Log(msg));
+            WhisperContext::new_with_params(&config.model_path, make_params(false))
+                .with_context(|| format!("loading whisper model {}", config.model_path))?
+        }
+    };
     let mut state = ctx.create_state().context("creating whisper state")?;
 
     let mut params = FullParams::new(SamplingStrategy::BeamSearch {
