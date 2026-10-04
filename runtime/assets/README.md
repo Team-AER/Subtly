@@ -1,9 +1,14 @@
-Local development assets staging directory.
+# Development runtime assets
 
-Subtly no longer ships any standalone binaries — whisper.cpp links in via
-`whisper-rs` and audio decoding goes through `symphonia` in-process. The only
-bundled asset is the Silero VAD model, which `cargo run -p xtask -- sync-assets`
-mirrors here from `resources/runtime-assets/`.
+Subtly links whisper.cpp via `whisper-rs` and decodes audio through Symphonia in-process. No standalone whisper-cli or FFmpeg binaries are staged here.
 
-Whisper transcription models are downloaded by the user at runtime through the
-Models tab and live in `${data_dir}/app.aer.Subtly/models/`.
+From the repository root:
+
+```sh
+cargo run -p xtask -- download-assets
+cargo run -p xtask -- sync-assets
+```
+
+The first command downloads and SHA256-checks Silero VAD into `resources/runtime-assets/models/silero_vad.bin`; the second mirrors it into `runtime/assets/models/silero_vad.bin`. Both are needed for the normal development resolver, which checks this directory first. Alternatively set `AER_ASSET_DIR` to a populated asset root.
+
+Whisper models are downloaded separately in the Models screen and stored in the OS-specific application data directory. See [settings and models](../../README.md#settings-and-models) for paths.

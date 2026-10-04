@@ -1,3 +1,7 @@
+# Historical architecture exploration
+
+> Archived design notes from the earlier Electron/sidecar approach. Subtly v2 is now an Iced/Rust application with in-process audio decoding and whisper.cpp inference. These ideas are not current setup instructions or implemented feature promises; use [README.md](README.md) for the current architecture and workflow.
+
 Below is a practical way to build an Electron desktop app whose “runtime features” are powered by Vulkan, with per-platform builds for Linux/macOS/Windows, and an explicit goal of running different ML models on top of Vulkan. I’m going to frame this in a way that matches what you’ve historically done well: tight DevOps, reproducible builds, modular backends, and a bias toward self-hosted / portable stacks.
 
 ⸻

@@ -1,124 +1,141 @@
+<p align="center"><img src="resources/icon.png" width="96" alt="Subtly app icon"></p>
+
 # Subtly
 
-Desktop app for GPU-accelerated Whisper subtitle generation. Single Rust binary built with [Iced](https://iced.rs); whisper.cpp is linked in directly via [whisper-rs](https://github.com/tazz4843/whisper-rs) and audio decoding/resampling/loudness all run in-process via [symphonia](https://github.com/pdeljanov/Symphonia) + [rubato](https://github.com/HEnquist/rubato) + [ebur128](https://github.com/sdroege/ebur128). No subprocesses at runtime.
+Subtly is AER's desktop app for turning local video and audio into subtitles with Whisper. Pick a file or folder, choose a model, and generate readable cues on your own computer. The Rust application uses Iced for its interface, Metal on macOS and Vulkan on Windows/Linux for inference, with CPU fallback when GPU inference cannot run.
 
-## Layout
+[Product website](https://subtly.aer.app) · [Downloads](https://github.com/Team-AER/Subtly/releases) · [Report an issue](https://github.com/Team-AER/Subtly/issues)
 
+The product page demonstrates the waveform-to-subtitle workflow, cue cleanup, GPU backends and model choices. Its animated examples are demonstrations; the website lives in [aer-landing/subtly](https://github.com/Team-AER/aer-landing/tree/main/subtly), separately from this desktop application.
+
+## Features
+
+- **File and folder input:** process a single media file or recursively batch a folder. Decoding runs in-process; no external FFmpeg installation is used.
+- **Five export formats:** SRT, VTT, TXT, JSON and CSV from the same transcription pass; output defaults to beside the input.
+- **Readable cues:** word-aligned resegmentation with character and duration limits, plus duplicate merging.
+- **Vocabulary tools:** an initial prompt for names and jargon, and find/replace rules with case-sensitive and whole-word options.
+- **Language controls:** automatic detection with the detected language shown in the workspace, explicit language selection, and optional translation to English. Translation is off by default.
+- **Local models:** download, select and remove Whisper models in Models; Silero VAD identifies speech regions.
+- **Visible progress:** cancellation, per-file batch progress, hardware status and an activity log. Advanced exposes decoding, VAD and subtitle settings.
+
+Transcription runs locally once the required models are installed. First-time model downloads require network access to Hugging Face; building also downloads Rust dependencies and the bundled VAD asset. Optional update checks and crash reporting can use the network when enabled. Local inference alone is not a guarantee of an air-gapped installation.
+
+## Get started
+
+Download the appropriate installer from [GitHub Releases](https://github.com/Team-AER/Subtly/releases). The current build workflow packages Apple Silicon macOS, Windows x64 and Linux x64. Intel macOS is present in the cargo-dist target configuration but is not built by the current packaging matrix; Windows ARM64 is not configured.
+
+1. Open **Models** and download a Whisper model. `large-v2` is the default accuracy-first choice (about 3.1 GB); `tiny` is about 78 MB for a quick trial. Check the VAD status too and download it if missing.
+2. In the workspace, choose **Pick file** or **Pick folder**. Leave Output blank to write beside the input, or choose a destination.
+3. Select export formats and optionally supply vocabulary and replacement rules. Adjust language or translation under Advanced if needed.
+4. Choose **Generate subtitles**. Inspect progress or the activity log, and review the generated text before publishing.
+
+Folder discovery recognizes MP4, MKV, MOV, WAV, MP3, M4A, FLAC and OGG extensions. Actual decoding depends on the file's container and codec support in Symphonia; an extension does not guarantee the audio will decode.
+
+## Architecture
+
+```mermaid
+flowchart TD
+    UI["Iced desktop UI: workspace, models, advanced, activity"] --> Settings["Settings and job configuration"]
+    UI --> Downloads["Model downloads from Hugging Face"]
+    Downloads --> Models["Local Whisper and Silero VAD models"]
+    Settings --> Jobs["Core orchestration: file or folder queue"]
+    Jobs --> Audio["Symphonia decode, Rubato resample, EBU R128 normalization"]
+    Audio --> Whisper["whisper-rs / whisper.cpp: Metal, Vulkan or CPU"]
+    Models --> Whisper
+    Whisper --> Cues["Vocabulary replacements, duplicate merge and cue resegmentation"]
+    Cues --> Export["SRT, VTT, TXT, JSON and CSV files"]
+    Jobs --> Events["Progress, segments, logs and cancellation"]
+    Events --> UI
 ```
-crates/
-  subtly-core/    transcription orchestration, model catalog, downloads, settings
-  subtly-ui/      Iced application (workspace / models / advanced screens)
-  xtask/          build helper (asset download, sync, packaging, notarization)
-resources/        icons, entitlements, NSIS installer script
-scripts/          assets-manifest.json, code-signing helpers
-```
 
-## Supported platforms
+The current v2 application links whisper.cpp directly through `whisper-rs`. Audio processing and inference run in-process on blocking worker threads, with events sent back to the UI and a watch channel for cancellation. Earlier Electron/sidecar plans are historical; [initial-vision.md](initial-vision.md) is not the current build guide.
 
-| OS | Versions | Notes |
-|---|---|---|
-| Windows | 10 (build 1809 / "October 2018 Update", x64) and 11 | Vulkan-capable GPU driver recommended; falls back to CPU if Vulkan is missing. Windows 7 / 8.1 are **not** supported (the binary depends on the in-box Universal CRT, which Win7/8 ship without). ARM64 Windows is not currently supported. |
-| macOS | 10.15+ (x64 / arm64) | Metal acceleration on Apple Silicon. |
-| Linux | glibc 2.31+ (Ubuntu 20.04+ or equivalent) | Needs a Vulkan loader (`libvulkan1`). |
+## Build from source
 
-The Windows installer ships the VC++ runtime DLLs (`vcruntime140`, `vcruntime140_1`, `msvcp140`) app-locally so machines without the Visual C++ Redistributable still launch.
+Use current stable Rust (the toolchain used by CI), a C/C++ toolchain and CMake. The workspace does not declare a tested minimum Rust version.
 
-## Build prerequisites
+| Platform | Native prerequisites |
+|---|---|
+| macOS | Xcode command-line tools / Metal SDK, CMake and pkg-config |
+| Windows x64 | MSVC C++ tools, CMake, Ninja and the Vulkan SDK; CI pins CMake 3.30.8 |
+| Linux x64 | C/C++ tools, CMake, pkg-config, Vulkan headers/loader and desktop libraries; see the complete apt list in [build.yml](.github/workflows/build.yml) |
 
-- Rust 1.75+
-- A C/C++ toolchain (Xcode CLT on macOS, MSVC on Windows, gcc/clang on Linux) — required by `whisper-rs` to compile whisper.cpp
-- `cmake` ≥ 3.10
-- macOS: Metal SDK (bundled with Xcode)
-- Linux/Windows: a Vulkan loader + headers (`libvulkan-dev` on Debian/Ubuntu)
-
-## Dev flow
+The macOS packager declares a 10.15 minimum, while CI builds on macOS 14. The Linux CI runner is Ubuntu 22.04; older distribution compatibility is not verified here. Debian packaging declares `libvulkan1` and `libgl1`. Windows packaging stages Visual C++ runtime DLLs alongside the executable; local Windows packaging must stage those as CI does.
 
 ```sh
-# Pull the VAD model (only bundled asset)
+git clone https://github.com/Team-AER/Subtly.git
+cd Subtly
+
+# Download the SHA256-checked VAD asset, then mirror it into the dev asset path.
 cargo run -p xtask -- download-assets
+cargo run -p xtask -- sync-assets
 
-# Run the GUI in dev mode
 cargo run -p subtly-ui
+```
 
-# Parity-test CLI
+Both asset steps matter: the runtime resolver checks `runtime/assets` before `resources/runtime-assets` during development. A downloaded VAD file only in the latter can be hidden by the existing staging directory.
+
+```sh
+# Core diagnostics (these do not transcribe audio)
 cargo run -p subtly-core --bin subtly-cli -- ping
+cargo run -p subtly-core --bin subtly-cli -- list-devices
+cargo run -p subtly-core --bin subtly-cli -- smoke
+
+# Preview planned output paths without inference or model validation
 cargo run -p subtly-core --bin subtly-cli -- transcribe /path/to/file.mp4 --dry-run
 
-# Unit tests
+# Actual CLI inference: supply a downloaded Whisper model explicitly
+cargo run -p subtly-core --bin subtly-cli -- transcribe /path/to/file.wav \
+  --model /path/to/ggml-large-v2.bin \
+  --vad runtime/assets/models/silero_vad.bin
+
 cargo test --workspace
-```
-
-## Release build
-
-```sh
 cargo build --release -p subtly-ui
-./target/release/subtly
 ```
 
-## Packaging
+Run `target/release/subtly` on macOS/Linux or `target\release\subtly.exe` on Windows. Model files are separate from the executable. If a codec fails to decode, convert the audio to a supported format using your own media tools before retrying.
+
+## Settings and models
+
+Paths come from `directories::ProjectDirs::from("app", "aer", "Subtly")`, not a single shared path across operating systems:
+
+| OS | Settings | Downloaded models |
+|---|---|---|
+| macOS | `~/Library/Application Support/app.aer.Subtly/settings.json` | `~/Library/Application Support/app.aer.Subtly/models/` |
+| Linux | `$XDG_CONFIG_HOME/subtly/settings.json` (default `~/.config/subtly/settings.json`) | `$XDG_DATA_HOME/subtly/models/` (default `~/.local/share/subtly/models/`) |
+| Windows | `%APPDATA%\aer\Subtly\config\settings.json` | `%APPDATA%\aer\Subtly\data\models\` |
+
+`AER_ASSET_DIR` overrides the bundled asset directory; it should contain `models/silero_vad.bin`. `RUST_LOG` controls tracing verbosity. Settings persist the chosen model, output formats, vocabulary, language, VAD and cue options. The model catalog is in [models.rs](crates/subtly-core/src/models.rs): large-v2, large-v3, large-v3-turbo, large-v3-turbo-q5_0, medium, small, base and tiny. Model downloads are checked against expected size; the build-time bundled VAD download additionally has a manifest SHA256 check.
+
+## Packaging and signing
 
 ```sh
-# One-time: install cargo-packager
 cargo install cargo-packager --locked
-
-# 1. Pull the bundled VAD model for the host platform
 cargo run -p xtask -- download-assets
-
-# 2. Build the release binary
 cargo build --release -p subtly-ui
-
-# 3. Package — outputs in ./release/
-cargo packager --release                     # default formats for host OS
-cargo packager --release -f dmg              # macOS .dmg
-cargo packager --release -f app              # macOS .app bundle only
-cargo packager --release -f nsis             # Windows .exe installer (run on Windows)
-cargo packager --release -f deb              # Linux .deb (run on Linux)
-cargo packager --release -f appimage         # Linux .AppImage (run on Linux)
+cargo packager --release
 ```
 
-cargo-packager can only target the host OS — cross-platform builds need a CI matrix (one runner per OS). The `release/` directory is shared by all formats; clean it between runs if you switch.
+Packages are written under `release/`. Choose host formats with `--formats app` on macOS, `--formats nsis` on Windows, or `--formats deb` / `--formats appimage` on Linux. Build on the relevant OS. The [build workflow](.github/workflows/build.yml) stages platform assets and creates artifacts; artifact creation does not by itself establish signing or notarization.
 
-### macOS code signing + notarization
+For macOS distribution follow [code-signing.md](docs/code-signing.md). The workflow signs and notarizes the app before constructing its DMG so it does not replace the signed app with a fresh unsigned bundle.
 
-```sh
-# Sign during packaging (cargo-packager picks up APPLE_SIGNING_IDENTITY)
-APPLE_SIGNING_IDENTITY="Developer ID Application: Your Name (TEAM)" \
-  cargo packager --release -f dmg
+| Optional UI feature | Current behavior |
+|---|---|
+| `crash-reporting` | Enables Sentry initialization when `SENTRY_DSN` is set |
+| `auto-update` | Enables axoupdater; requires an installation receipt and currently targets `prakhar1989/Subtly` |
 
-# Notarize + staple the resulting .app (or .dmg)
-APPLE_ID=you@example.com \
-APPLE_APP_SPECIFIC_PASSWORD=xxxx-xxxx-xxxx-xxxx \
-APPLE_TEAM_ID=ABCDE12345 \
-  cargo run -p xtask -- notarize release/Subtly.app
-```
+Both features are disabled by default. cargo-dist metadata exists, but the checked-in Build workflow uses cargo-packager; do not assume the optional updater is configured for Team-AER releases.
 
-### What gets bundled
-
-cargo-packager copies the following into the platform's resource directory:
+## Repository guide and credits
 
 | Path | Purpose |
 |---|---|
-| `models/silero_vad.bin` | Required VAD model |
+| `crates/subtly-core/` | Model catalog, downloads, settings, audio, inference and exports |
+| `crates/subtly-ui/` | Desktop interface and optional updater/crash reporting |
+| `crates/xtask/` | Asset download/sync, packaging and notarization helpers |
+| `resources/` | Existing Subtly icon, entitlements, installer support and packaged VAD staging |
+| `runtime/assets/` | Development asset staging |
+| `docs/` | Maintainer signing and certificate guides |
 
-Whisper models are not bundled — users download them through the Models tab on first run. The default/recommended Whisper model is `large-v2`, matching Aiko's documented macOS accuracy-first model choice. The Silero VAD model comes from `resources/runtime-assets/`, which `xtask download-assets` populates from `scripts/assets-manifest.json` (verified by SHA256).
-
-## Auto-update / signed releases
-
-Auto-update is wired through [cargo-dist](https://github.com/axodotdev/cargo-dist) + [axoupdater](https://github.com/axodotdev/axoupdater) (gated behind the `auto-update` feature on `subtly-ui`). Set up the release pipeline once with `cargo dist init`; tag pushes then produce signed artifacts and a `dist-manifest.json` the running app reads on startup.
-
-## Optional features
-
-| Feature | Effect |
-|---|---|
-| `crash-reporting` | Initialize Sentry from `SENTRY_DSN` |
-| `auto-update`     | Run axoupdater on startup |
-
-## Settings
-
-Persisted to `${config_dir}/app.aer.Subtly/settings.json`. Models live in `${data_dir}/app.aer.Subtly/models/`.
-
-Default transcription behavior favors same-language transcription over translation. Enable “Translate to English” only when you explicitly want Whisper's English translation mode.
-
-## Architecture note
-
-Earlier versions shelled out to bundled `whisper-cli` and `ffmpeg` binaries to keep heavy compute crash-isolated from the UI. The current build links whisper.cpp in via `whisper-rs` and runs all decoding through `symphonia`/`rubato` in-process — inference happens on a `tokio::task::spawn_blocking` thread so the UI stays responsive, and the abort callback wired to `tokio::sync::watch` lets users cancel mid-file. Device enumeration and the smoke test are wrapped in `catch_unwind` to harden against flaky drivers.
+Subtly v2 continues the earlier Subtly application, replacing its Electron and external-tool pipeline with Rust. Its accuracy-first default acknowledges Aiko's model-selection approach; Subtly is a separate application. Thanks to OpenAI Whisper, whisper.cpp, whisper-rs, Iced, Symphonia, Rubato, EBU R128 and Silero VAD and their contributors. The project is [MIT licensed](LICENSE); dependency and model licenses remain their own.
