@@ -1,269 +1,56 @@
-# macOS Code Signing and Notarization
+# macOS signing and notarization
 
-This guide explains how to set up code signing and notarization for Subtly on macOS to ensure users can open the app without Gatekeeper security warnings.
+Subtly v2 uses cargo-packager and the Rust `xtask notarize` helper. There are no Electron build commands or JavaScript notarization hooks in the current application. This guide describes the checked-in [Build workflow](../.github/workflows/build.yml); it does not assert that repository secrets or a particular release are signed.
 
-## Overview
+## Local packaging
 
-macOS requires apps distributed outside the App Store to be:
-1. **Signed** with a Developer ID certificate
-2. **Notarized** by Apple (uploaded to Apple for automated security scanning)
-3. **Stapled** with the notarization ticket
+Use a Developer ID Application certificate and its private key installed in your macOS keychain, plus Xcode command-line tools. Select the matching identity without exposing the private key:
 
-Without notarization, users see: "Apple could not verify 'Subtly.app' is free of malware."
-
-## Requirements
-
-### Apple Developer Account
-- **Paid Apple Developer Program membership** ($99/year)
-- Enroll at: https://developer.apple.com/programs/
-
-### Developer ID Certificate
-1. Log in to [Apple Developer](https://developer.apple.com/account/)
-2. Go to Certificates, Identifiers & Profiles
-3. Create a **Developer ID Application** certificate
-4. Download and install in Keychain
-5. Export as `.p12` file for CI/CD use
-
-### App-Specific Password
-1. Go to [appleid.apple.com](https://appleid.apple.com/)
-2. Sign in with your Apple ID
-3. Navigate to Security → App-Specific Passwords
-4. Generate a new password (e.g., "Subtly Notarization")
-5. Save this password securely
-
-### Team ID
-1. Go to [Apple Developer Membership](https://developer.apple.com/account/#/membership/)
-2. Find your **Team ID** (10-character identifier)
-3. Save this for later use
-
-## Configuration
-
-Subtly uses electron-builder's `afterSign` hook to handle notarization. This is implemented in [`scripts/notarize.js`](../scripts/notarize.js).
-
-The notarization script automatically runs after signing and will:
-- ✅ Notarize the app if all required environment variables are present
-- ⏭️ Skip notarization if any credentials are missing (allows local development builds)
-- ❌ Fail the build if credentials are present but invalid
-
-### Environment Variables
-
-Subtly uses the following environment variables for code signing and notarization:
-
-| Variable | Description | Where to Get It |
-|----------|-------------|-----------------|
-| `CSC_LINK` | Base64-encoded `.p12` certificate or path to `.p12` file | Export from Keychain |
-| `CSC_KEY_PASSWORD` | Password for the `.p12` certificate | Set when exporting |
-| `APPLE_ID` | Your Apple ID email | Your Apple account email |
-| `APPLE_APP_SPECIFIC_PASSWORD` | App-specific password | Generated at appleid.apple.com |
-| `APPLE_TEAM_ID` | Your Apple Developer Team ID | Found in developer account |
-
-### Local Development
-
-For local builds with notarization:
-
-```bash
-# Set up environment variables (add to ~/.zshrc or ~/.bashrc for persistence)
-export APPLE_ID="your-email@example.com"
-export APPLE_APP_SPECIFIC_PASSWORD="abcd-efgh-ijkl-mnop"
-export APPLE_TEAM_ID="XXXXXXXXXX"
-
-# Optional: For signing (if not using certificate from Keychain)
-export CSC_LINK="/path/to/certificate.p12"
-export CSC_KEY_PASSWORD="your-p12-password"
-
-# Build and package
-pnpm build:runtime
-pnpm build
-pnpm pack
+```sh
+security find-identity -v -p codesigning
+cargo install cargo-packager --locked
+cargo run -p xtask -- download-assets
+cargo build --release -p subtly-ui
+APPLE_SIGNING_IDENTITY="Developer ID Application: Your Name (TEAMID)" \
+  cargo packager --release --formats app
 ```
 
-> **Note:** If you have the Developer ID certificate in your Keychain and it's valid, electron-builder will automatically find and use it. You only need `CSC_LINK` if you want to specify a specific certificate file.
+Check the actual app path under `release/`; packaging can vary with target/version. For the commands below, set `SUBTLY_APP` to that generated bundle:
 
-### CI/CD (GitHub Actions)
-
-The GitHub Actions workflow is already configured. You need to add these secrets:
-
-#### Quick Setup Using Helper Script
-
-Run the certificate export helper script on your Mac:
-
-```bash
-chmod +x scripts/export-certificate.sh
-./scripts/export-certificate.sh
+```sh
+SUBTLY_APP="release/Subtly.app"
+codesign --verify --deep --strict --verbose=2 "$SUBTLY_APP"
+cargo run -p xtask -- notarize "$SUBTLY_APP"
+xcrun stapler validate "$SUBTLY_APP"
+spctl --assess --type execute --verbose=2 "$SUBTLY_APP"
 ```
 
-This will guide you through the entire process.
+Before running `notarize`, provide `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` through your credential manager or protected environment. Do not paste secrets into repository files, shell history, documentation or logs.
 
-#### Manual Setup Instructions
+The helper zips a raw `.app` with `ditto`, submits it using `xcrun notarytool --wait`, requires Apple's `Accepted` status and staples the original bundle. It skips on non-macOS hosts or when any required credential is missing, so a successful command exit alone does not prove notarization. Use the validation commands and inspect the helper's result. Although the helper can submit a `.zip`, ZIP files cannot receive a stapled ticket; prefer `.app` or `.dmg` inputs.
 
-1. **Export Your Developer ID Certificate**
+## GitHub Actions credentials
 
-   On your Mac where the Developer ID certificate is installed:
+The macOS job imports a certificate into a temporary keychain and exports its signing identity. Configure these repository Actions secrets through GitHub's settings:
 
-   a. Open **Keychain Access** application
-   
-   b. In the left sidebar, select **login** keychain
-   
-   c. In the category list, select **My Certificates**
-   
-   d. Find your **Developer ID Application** certificate (the one with ID: `641EFE28C76C562D4D8C962BC792601F0AAF686B`)
-   
-   e. Right-click and select **Export "Developer ID Application..."**
-   
-   f. Save as: `certificate.p12` (to Desktop or Downloads)
-   
-   g. **Set a strong password** and remember it (you'll use this as `CSC_KEY_PASSWORD`)
+| Secret | Role |
+|---|---|
+| `CSC_LINK` | Exported `.p12` certificate and private key, normally base64-encoded for CI |
+| `CSC_KEY_PASSWORD` | Password used to protect that `.p12` export |
+| `APPLE_SIGNING_IDENTITY` | Optional explicit identity; the workflow can derive it from the imported certificate |
+| `APPLE_ID` | Apple account used for notarization |
+| `APPLE_APP_SPECIFIC_PASSWORD` | Account's app-specific notarization password |
+| `APPLE_TEAM_ID` | Developer team identifier |
 
-2. **Convert Certificate to Base64**
+An explicit identity is only useful if its certificate and private key are accessible in the build keychain. Missing credentials can produce unsigned artifacts or skipped notarization, as described by workflow warnings. Read the run's signing and notarization results rather than treating uploaded artifacts as proof.
 
-   Open Terminal and run:
-   
-   ```bash
-   # If saved to Desktop:
-   base64 -i ~/Desktop/certificate.p12 -o ~/Desktop/certificate-base64.txt
-   
-   # If saved to Downloads:
-   base64 -i ~/Downloads/certificate.p12 -o ~/Downloads/certificate-base64.txt
-   ```
-
-3. **Configure GitHub Secrets**
-
-   Go to your GitHub repository: **Settings → Secrets and variables → Actions**
-   
-   Click **New repository secret** or update existing ones:
-
-   | Secret Name | Secret Value | How to Get It |
-   |-------------|--------------|---------------|
-   | `CSC_LINK` | Contents of `certificate-base64.txt` | Copy the **entire contents** of the base64 file (it will be a very long string) |
-   | `CSC_KEY_PASSWORD` | The password you set | The password you entered when exporting the .p12 file |
-   | `APPLE_ID` | Your Apple ID email | Already configured ✓ |
-   | `APPLE_APP_SPECIFIC_PASSWORD` | App-specific password | Already configured ✓ |
-   | `APPLE_TEAM_ID` | Your 10-character Team ID | Already configured ✓ |
-
-4. **Clean Up (IMPORTANT!)**
-
-   After uploading to GitHub, delete the certificate files for security:
-   
-   ```bash
-   rm ~/Desktop/certificate.p12 ~/Desktop/certificate-base64.txt
-   # or
-   rm ~/Downloads/certificate.p12 ~/Downloads/certificate-base64.txt
-   ```
-
-   **Never commit these files to git!**
-
-## Building Without Notarization
-
-If you want to build locally without notarization (e.g., for development):
-
-```bash
-# Simply don't set the APPLE_* environment variables
-pnpm build:runtime
-pnpm build
-pnpm pack
-```
-
-The build will succeed, but the app won't be notarized. You can still open it locally by right-clicking and selecting "Open" (bypasses Gatekeeper for the first launch).
-
-## Verification
-
-### Check Code Signature
-
-```bash
-# Verify the app is signed
-codesign -vvv --deep --strict release/mac-arm64/Subtly.app
-
-# Should output:
-# release/mac-arm64/Subtly.app: valid on disk
-# release/mac-arm64/Subtly.app: satisfies its Designated Requirement
-```
-
-### Check Notarization Status
-
-```bash
-# Check if app is notarized and Gatekeeper will accept it
-spctl -a -vv -t install release/mac-arm64/Subtly.app
-
-# Should output something like:
-# release/mac-arm64/Subtly.app: accepted
-# source=Notarized Developer ID
-```
-
-### Check Stapling
-
-```bash
-# Check if notarization ticket is stapled to the app
-stapler validate release/mac-arm64/Subtly.app
-
-# Should output:
-# The validate action worked!
-```
+The workflow packages an `.app`, signs/notarizes it, then creates the `.dmg` with `hdiutil` and notarizes/staples the DMG. It avoids asking cargo-packager to rebuild the app during DMG creation, which could discard the signature.
 
 ## Troubleshooting
 
-### "No Developer ID certificate found"
+- **No valid identity:** confirm that the certificate includes its private key, is valid, and is available in the active keychain. Check `security find-identity -v -p codesigning`.
+- **Certificate import fails:** confirm the `.p12` export, its password and the encoding of `CSC_LINK`; inspect the workflow import error without printing the secret.
+- **Notarization rejected:** the Rust helper retrieves Apple's submission log. Inspect the specific rejected file or signature and rebuild/re-sign before retrying.
+- **Gatekeeper rejects the app:** check its signature, Apple's acceptance and the stapled ticket. A damaged-app message alone does not identify the cause; do not replace verification with quarantine removal.
 
-**Solution:** Install your Developer ID Application certificate in Keychain Access, or set `CSC_LINK` to point to your `.p12` file.
-
-### "Notarization failed"
-
-**Possible causes:**
-- Invalid Apple ID or app-specific password
-- Incorrect Team ID
-- App not properly signed before notarization
-- Missing entitlements
-
-**Solution:** Check the build logs for specific error messages from Apple's notarization service.
-
-### "App is damaged and can't be opened"
-
-This usually means the app signature is invalid.
-
-**Solution:**
-```bash
-# Remove quarantine attribute
-xattr -cr release/mac-arm64/Subtly.app
-```
-
-### Notarization Takes Too Long
-
-Notarization typically takes 1-15 minutes. If it takes longer:
-- Check Apple's system status: https://developer.apple.com/system-status/
-- Wait and retry later if Apple's services are experiencing issues
-
-### "Unexpected token 'E', Error: int... is not valid JSON"
-
-This error occurs when the notarization tool receives an error message instead of JSON output.
-
-**Common causes:**
-- Missing or invalid environment variables (`APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`)
-- Incorrect Team ID format (should be 10-character alphanumeric)
-- Invalid app-specific password
-- Environment variables not properly exported in CI/CD
-
-**Solution:**
-1. Verify all three environment variables are set:
-   ```bash
-   echo $APPLE_ID
-   echo $APPLE_APP_SPECIFIC_PASSWORD  
-   echo $APPLE_TEAM_ID
-   ```
-2. Ensure Team ID is exactly 10 characters (no quotes, no spaces)
-3. Regenerate app-specific password if needed
-4. In CI/CD, verify secrets are properly configured in GitHub Actions
-
-## References
-
-- [Apple Developer Documentation: Notarizing macOS Software](https://developer.apple.com/documentation/security/notarizing_macos_software_before_distribution)
-- [electron-builder Code Signing](https://www.electron.build/code-signing)
-- [electron-builder macOS Configuration](https://www.electron.build/configuration/mac)
-- [@electron/notarize](https://github.com/electron/notarize)
-
-## Security Best Practices
-
-1. **Never commit certificates or passwords** to version control
-2. **Use environment variables** for sensitive credentials
-3. **Rotate app-specific passwords** periodically
-4. **Use GitHub repository secrets** for CI/CD credentials
-5. **Protect your `.p12` file** - store it securely encrypted
-6. **Enable 2FA** on your Apple ID account
+For a quick certificate checklist see [certificate-setup-quick-guide.md](certificate-setup-quick-guide.md). The older [MACOS_SIGNING.md](MACOS_SIGNING.md) filename remains as a pointer to this current guide.

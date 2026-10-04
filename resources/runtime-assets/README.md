@@ -1,13 +1,7 @@
-Packaged runtime assets.
+# Packaged runtime assets
 
-Only the Silero VAD model is bundled now — whisper.cpp is linked into the app
-binary via `whisper-rs`, and audio decoding goes through `symphonia` in-process,
-so there are no `whisper-cli` or `ffmpeg` binaries to ship.
+The bundled model is `models/silero_vad.bin`. From the repository root, `cargo run -p xtask -- download-assets` downloads it using [assets-manifest.json](../../scripts/assets-manifest.json) and verifies its SHA256. Packaging copies it into the platform resource directory.
 
-Layout:
+For a development run, also execute `cargo run -p xtask -- sync-assets` to populate `runtime/assets`, or point `AER_ASSET_DIR` to this directory. See [the development asset guide](../../runtime/assets/README.md).
 
-- `models/silero_vad.bin` — populated by `cargo run -p xtask -- download-assets`
-  from `scripts/assets-manifest.json` (SHA256-verified).
-
-User-downloaded Whisper models live in `${data_dir}/app.aer.Subtly/models/`,
-not here.
+whisper.cpp is linked through `whisper-rs`, and decoding uses Symphonia in-process; no whisper-cli or FFmpeg binaries are bundled. Whisper transcription models are separate user downloads stored in the OS-specific data directory, as described in [README.md](../../README.md#settings-and-models).
