@@ -14,12 +14,21 @@ fn main() -> iced::Result {
     init_tracing();
     init_crash_reporting();
     enforce_single_instance();
-    spawn_update_check();
+    if !cfg!(debug_assertions) || !std::env::args().any(|arg| arg == "--ui-result-preview") {
+        spawn_update_check();
+    }
 
+    let preview_small = cfg!(debug_assertions)
+        && std::env::args().any(|arg| arg == "--ui-result-preview")
+        && std::env::args().any(|arg| arg == "--ui-preview-small");
     iced::application("Subtly", App::update, App::view)
         .subscription(App::subscription)
         .theme(App::theme)
-        .window_size(iced::Size::new(1100.0, 760.0))
+        .window_size(if preview_small {
+            iced::Size::new(760.0, 640.0)
+        } else {
+            iced::Size::new(1100.0, 760.0)
+        })
         .run_with(App::new)
 }
 

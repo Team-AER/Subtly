@@ -5,7 +5,7 @@ use iced::widget::{
 };
 use iced::{Alignment, Element, Length};
 
-use crate::app::{App, Message, Screen};
+use crate::app::{App, Message, Screen, TranscribeResult};
 use crate::theme as t;
 
 pub fn view<'a>(app: &'a App) -> Element<'a, Message> {
@@ -167,18 +167,20 @@ pub fn view<'a>(app: &'a App) -> Element<'a, Message> {
         action_col.into()
     };
 
-    column![
+    let mut content = column![
         input_block,
         output_block,
         formats_block,
         prompt_block,
         replacements_block,
         context_chips,
-        action_area,
     ]
     .spacing(20)
-    .max_width(820.0)
-    .into()
+    .max_width(820.0);
+    if let Some(result) = &app.transcribe_result {
+        content = content.push(result_card(result));
+    }
+    content.push(action_area).into()
 }
 
 fn prompt_input<'a>(s: &subtly_core::settings::Settings, busy: bool) -> Element<'a, Message> {
@@ -194,10 +196,7 @@ fn prompt_input<'a>(s: &subtly_core::settings::Settings, busy: bool) -> Element<
     input.into()
 }
 
-fn replacements_view<'a>(
-    s: &subtly_core::settings::Settings,
-    busy: bool,
-) -> Element<'a, Message> {
+fn replacements_view<'a>(s: &subtly_core::settings::Settings, busy: bool) -> Element<'a, Message> {
     let mut col: Column<'_, Message> = Column::new().spacing(8);
     if s.replacements.is_empty() {
         col = col.push(
@@ -257,6 +256,161 @@ fn replacements_view<'a>(
         add_btn = add_btn.on_press(Message::AddReplacement);
     }
     col.push(add_btn).into()
+}
+
+fn result_card(result: &TranscribeResult) -> Element<'_, Message> {
+    let activity = button(text("View activity").size(12))
+        .padding([6, 12])
+        .on_press(Message::NavigateTo(Screen::Logs))
+        .style(t::ghost_button);
+    let (title, detail, primary) = match result {
+        TranscribeResult::Completed {
+            jobs,
+            outputs,
+            dry_run,
+        } => {
+            let folders: std::collections::BTreeSet<_> = outputs
+                .iter()
+                .filter_map(|path| std::path::Path::new(path).parent())
+                .collect();
+            let (title, detail) = completion_copy(*jobs, outputs, *dry_run);
+            let primary = if *dry_run || outputs.is_empty() {
+                None
+            } else {
+                folders.iter().next().map(|folder| {
+                    button(text("Open output folder").size(12))
+                        .padding([8, 14])
+                        .on_press(Message::OpenOutputFolder(
+                            folder.to_string_lossy().into_owned(),
+                        ))
+                        .style(t::primary_button)
+                })
+            };
+            (title, detail, primary)
+        }
+        TranscribeResult::Failed(error) => (
+            "Subtitle generation failed".to_string(),
+            error.clone(),
+            Some(
+                button(text("Retry").size(12))
+                    .padding([8, 14])
+                    .on_press(Message::StartTranscribe)
+                    .style(t::primary_button),
+            ),
+        ),
+        TranscribeResult::Cancelled => (
+            "Subtitle generation cancelled".to_string(),
+            "Any files already written remain in the output folder. See activity for details."
+                .to_string(),
+            None,
+        ),
+    };
+    let mut actions = row![].spacing(8).align_y(Alignment::Center);
+    if let Some(primary) = primary {
+        actions = actions.push(primary);
+    }
+    actions = actions.push(activity);
+    container(
+        column![
+            text(title).size(15),
+            text(detail).size(13).color(t::TEXT_MUTED),
+            actions
+        ]
+        .spacing(10),
+    )
+    .style(t::surface)
+    .padding(18)
+    .width(Length::Fill)
+    .into()
+}
+
+/// Completion wording follows the dispatched run, including dry runs which
+/// return planned paths without writing files.
+fn completion_copy(jobs: usize, outputs: &[String], dry_run: bool) -> (String, String) {
+    let formats = outputs
+        .iter()
+        .filter_map(|path| std::path::Path::new(path).extension()?.to_str())
+        .map(str::to_uppercase)
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>()
+        .join(" · ");
+    let formats = if formats.is_empty() {
+        String::new()
+    } else {
+        format!("Formats: {formats}. ")
+    };
+    if dry_run {
+        return (
+            format!(
+                "Dry run complete · {jobs} job(s) · {} planned files",
+                outputs.len()
+            ),
+            format!("{formats}No files were written. View activity for planned paths."),
+        );
+    }
+    if outputs.is_empty() {
+        return (
+            "Finished without output files".to_string(),
+            "No subtitle files were written. View activity for details.".to_string(),
+        );
+    }
+    let folders = outputs
+        .iter()
+        .filter_map(|path| std::path::Path::new(path).parent())
+        .collect::<std::collections::BTreeSet<_>>();
+    let destination = if folders.len() == 1 {
+        format!("Saved in {}", folders.iter().next().unwrap().display())
+    } else {
+        format!(
+            "Saved across {} folders. See activity for every output path.",
+            folders.len()
+        )
+    };
+    (
+        format!("Subtitles ready · {jobs} job(s) · {} files", outputs.len()),
+        format!("{formats}{destination}"),
+    )
+}
+
+#[cfg(test)]
+mod result_tests {
+    use super::completion_copy;
+
+    #[test]
+    fn dry_run_does_not_claim_saved_outputs() {
+        let outputs = vec![
+            "/tmp/preview/a.srt".into(),
+            "/tmp/preview/a.vtt".into(),
+            "/tmp/preview/b.srt".into(),
+        ];
+        let (title, detail) = completion_copy(1, &outputs, true);
+        assert!(title.contains("Dry run complete"));
+        assert!(title.contains("3 planned files"));
+        assert!(detail.contains("SRT · VTT"));
+        assert!(detail.contains("No files were written"));
+        assert!(!title.contains("ready"));
+        assert!(!detail.contains("Saved"));
+    }
+
+    #[test]
+    fn empty_completion_does_not_claim_subtitles_ready() {
+        let (title, detail) = completion_copy(0, &[], false);
+        assert_eq!(title, "Finished without output files");
+        assert!(detail.contains("No subtitle files were written"));
+    }
+
+    #[test]
+    fn saved_completion_lists_unique_formats_and_location() {
+        let outputs = vec![
+            "/tmp/output/a.srt".into(),
+            "/tmp/output/a.vtt".into(),
+            "/tmp/output/b.srt".into(),
+        ];
+        let (title, detail) = completion_copy(1, &outputs, false);
+        assert!(title.contains("3 files"));
+        assert_eq!(detail, "Formats: SRT · VTT. Saved in /tmp/output");
+    }
 }
 
 fn progress_card<'a>(
