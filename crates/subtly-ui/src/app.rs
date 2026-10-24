@@ -86,6 +86,7 @@ pub struct App {
     pub log_seq: u64,
     pub ping_status: Option<PingResult>,
     pub is_transcribing: bool,
+    pub workspace_refinements_expanded: bool,
     pub transcribe_progress: Option<TranscribeProgress>,
     pub transcribe_result: Option<TranscribeResult>,
     pub downloading: HashMap<String, DownloadInfo>,
@@ -135,6 +136,8 @@ pub enum Message {
     ToggleTranslate(bool),
     ToggleDryRun(bool),
 
+    ToggleWorkspaceRefinements,
+    CloseWorkspaceRefinements,
     SetInitialPrompt(String),
     AddReplacement,
     RemoveReplacement(usize),
@@ -186,6 +189,7 @@ impl App {
             log_seq: 0,
             ping_status: None,
             is_transcribing: false,
+            workspace_refinements_expanded: false,
             transcribe_progress: None,
             transcribe_result: None,
             downloading: HashMap::new(),
@@ -199,6 +203,7 @@ impl App {
         // transcription, update check or settings write is needed.
         #[cfg(debug_assertions)]
         if std::env::args().any(|arg| arg == "--ui-result-preview") {
+            app.settings = Settings::default();
             app.settings.input_path = "Synthetic preview — no transcription performed".to_string();
             // Retry can exercise the normal missing-model prerequisite without
             // ever starting transcription, even on a machine with models.
@@ -223,6 +228,9 @@ impl App {
                     }
                 },
             );
+            if std::env::args().any(|arg| arg == "--ui-preview-idle") {
+                app.transcribe_result = None;
+            }
             return (app, Task::none());
         }
 
@@ -239,7 +247,33 @@ impl App {
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
-        iced::time::every(Duration::from_secs(10)).map(|_| Message::Tick)
+        let keys = if self.screen == Screen::Workspace {
+            iced::event::listen_with(|event, _, _| {
+                let iced::Event::Keyboard(iced::keyboard::Event::KeyPressed {
+                    key, modifiers, ..
+                }) = event
+                else {
+                    return None;
+                };
+                match key.as_ref() {
+                    iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape) => {
+                        Some(Message::CloseWorkspaceRefinements)
+                    }
+                    iced::keyboard::Key::Character("r" | "R")
+                        if modifiers.command() && modifiers.shift() =>
+                    {
+                        Some(Message::ToggleWorkspaceRefinements)
+                    }
+                    _ => None,
+                }
+            })
+        } else {
+            Subscription::none()
+        };
+        Subscription::batch([
+            iced::time::every(Duration::from_secs(10)).map(|_| Message::Tick),
+            keys,
+        ])
     }
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
@@ -269,6 +303,28 @@ impl App {
             Message::NavigateTo(s) => {
                 self.screen = s;
                 Task::none()
+            }
+            Message::ToggleWorkspaceRefinements => {
+                self.workspace_refinements_expanded = !self.workspace_refinements_expanded;
+                if self.workspace_refinements_expanded {
+                    Task::batch([
+                        scrollable::snap_to(
+                            scrollable::Id::new("workspace-body"),
+                            scrollable::RelativeOffset::END,
+                        ),
+                        iced::widget::text_input::focus("workspace-vocabulary"),
+                    ])
+                } else {
+                    self.focus_workspace_output()
+                }
+            }
+            Message::CloseWorkspaceRefinements => {
+                if self.workspace_refinements_expanded {
+                    self.workspace_refinements_expanded = false;
+                    self.focus_workspace_output()
+                } else {
+                    Task::none()
+                }
             }
             Message::SetInputPath(v) => {
                 self.settings.input_path = v;
@@ -642,6 +698,16 @@ impl App {
         }
     }
 
+    fn focus_workspace_output(&self) -> Task<Message> {
+        Task::batch([
+            scrollable::snap_to(
+                scrollable::Id::new("workspace-body"),
+                scrollable::RelativeOffset::START,
+            ),
+            iced::widget::text_input::focus("workspace-output"),
+        ])
+    }
+
     pub fn view(&self) -> Element<'_, Message> {
         let sidebar = self.sidebar();
         // The Logs screen renders a text_editor that handles its own
@@ -661,6 +727,7 @@ impl App {
                     Screen::Logs => unreachable!(),
                 };
                 scrollable(container(inner).padding([24, 28]).width(Length::Fill))
+                    .id(scrollable::Id::new("workspace-body"))
                     .style(t::scrollable_style)
                     .height(Length::Fill)
                     .into()
@@ -868,6 +935,11 @@ impl App {
     }
 
     fn persist(&self) -> Task<Message> {
+        #[cfg(debug_assertions)]
+        if std::env::args().any(|arg| arg == "--ui-result-preview") {
+            return Task::none();
+        }
+
         let _ = save_settings(&self.settings);
         Task::none()
     }
