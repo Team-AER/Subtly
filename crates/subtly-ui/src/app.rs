@@ -86,6 +86,7 @@ pub struct App {
     pub log_seq: u64,
     pub ping_status: Option<PingResult>,
     pub is_transcribing: bool,
+    pub workspace_refinements_expanded: bool,
     pub transcribe_progress: Option<TranscribeProgress>,
     pub transcribe_result: Option<TranscribeResult>,
     pub downloading: HashMap<String, DownloadInfo>,
@@ -135,6 +136,7 @@ pub enum Message {
     ToggleTranslate(bool),
     ToggleDryRun(bool),
 
+    ToggleWorkspaceRefinements,
     SetInitialPrompt(String),
     AddReplacement,
     RemoveReplacement(usize),
@@ -186,6 +188,7 @@ impl App {
             log_seq: 0,
             ping_status: None,
             is_transcribing: false,
+            workspace_refinements_expanded: false,
             transcribe_progress: None,
             transcribe_result: None,
             downloading: HashMap::new(),
@@ -268,6 +271,10 @@ impl App {
             }
             Message::NavigateTo(s) => {
                 self.screen = s;
+                Task::none()
+            }
+            Message::ToggleWorkspaceRefinements => {
+                self.workspace_refinements_expanded = !self.workspace_refinements_expanded;
                 Task::none()
             }
             Message::SetInputPath(v) => {

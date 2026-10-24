@@ -56,13 +56,13 @@ pub fn view<'a>(app: &'a App) -> Element<'a, Message> {
     let output_block = section(
         "Output",
         "Optional. Leave blank to write next to the input file.",
-        output_input.into(),
-    );
-
-    let formats_block = section(
-        "Export formats",
-        "Whisper writes every selected format in one pass.",
-        format_selector(s, busy).into(),
+        column![
+            output_input,
+            text("Export formats").size(13).color(t::TEXT),
+            format_selector(s, busy),
+        ]
+        .spacing(12)
+        .into(),
     );
 
     let prompt_block = section(
@@ -167,20 +167,26 @@ pub fn view<'a>(app: &'a App) -> Element<'a, Message> {
         action_col.into()
     };
 
-    let mut content = column![
-        input_block,
-        output_block,
-        formats_block,
-        prompt_block,
-        replacements_block,
-        context_chips,
-    ]
-    .spacing(20)
-    .max_width(820.0);
+    let mut content = column![input_block, output_block, context_chips,]
+        .spacing(20)
+        .max_width(820.0);
     if let Some(result) = &app.transcribe_result {
         content = content.push(result_card(result));
     }
-    content.push(action_area).into()
+    content = content.push(action_area).push(
+        button(text(if app.workspace_refinements_expanded {
+            "▾ Vocabulary & replacements"
+        } else {
+            "▸ Vocabulary & replacements"
+        }))
+        .on_press(Message::ToggleWorkspaceRefinements)
+        .padding([10, 14])
+        .style(t::secondary_button),
+    );
+    if app.workspace_refinements_expanded {
+        content = content.push(prompt_block).push(replacements_block);
+    }
+    content.into()
 }
 
 fn prompt_input<'a>(s: &subtly_core::settings::Settings, busy: bool) -> Element<'a, Message> {
