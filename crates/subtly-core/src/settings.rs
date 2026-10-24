@@ -30,6 +30,8 @@ pub struct Settings {
     pub flash_attn: bool,
     pub export_formats: Vec<String>,
     pub dry_run: bool,
+    /// Reduce decorative workspace transitions in addition to the OS preference.
+    pub reduce_motion: bool,
 
     /// Initial prompt biasing the decoder. Use this to teach Whisper
     /// proper nouns / brand names / domain jargon up-front so the
@@ -75,6 +77,7 @@ impl Default for Settings {
             flash_attn: crate::whisper::flash_attention_is_safe(),
             export_formats: vec!["srt".to_string()],
             dry_run: false,
+            reduce_motion: false,
             initial_prompt: String::new(),
             replacements: Vec::new(),
             resegment_enabled: true,
