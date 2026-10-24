@@ -18,3 +18,18 @@ node_modules
 /deps/whisper.cpp
 
 sample/
+
+# Generated design-review evidence stays local, outside published source.
+docs/design-review-*/**/*.avif
+docs/design-review-*/**/*.gif
+docs/design-review-*/**/*.heic
+docs/design-review-*/**/*.jpeg
+docs/design-review-*/**/*.jpg
+docs/design-review-*/**/*.mov
+docs/design-review-*/**/*.mp4
+docs/design-review-*/**/*.png
+docs/design-review-*/**/*.svg
+docs/design-review-*/**/*.tif
+docs/design-review-*/**/*.tiff
+docs/design-review-*/**/*.webm
+docs/design-review-*/**/*.webp

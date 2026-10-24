@@ -65,6 +65,17 @@ pub struct TranscribeProgress {
     pub cancelling: bool,
 }
 
+#[derive(Debug, Clone)]
+pub enum TranscribeResult {
+    Completed {
+        jobs: usize,
+        outputs: Vec<String>,
+        dry_run: bool,
+    },
+    Failed(String),
+    Cancelled,
+}
+
 pub struct App {
     pub screen: Screen,
     pub settings: Settings,
@@ -76,6 +87,7 @@ pub struct App {
     pub ping_status: Option<PingResult>,
     pub is_transcribing: bool,
     pub transcribe_progress: Option<TranscribeProgress>,
+    pub transcribe_result: Option<TranscribeResult>,
     pub downloading: HashMap<String, DownloadInfo>,
     pub log_content: text_editor::Content,
     /// Last language Whisper detected for the running/most-recent job.
@@ -139,8 +151,12 @@ pub enum Message {
 
     StartTranscribe,
     TranscribeEvent(Event),
-    TranscribeFinished(Result<TranscribeOutcome, String>),
+    TranscribeFinished {
+        outcome: Result<TranscribeOutcome, String>,
+        dry_run: bool,
+    },
     CancelTranscribe,
+    OpenOutputFolder(String),
 
     StartDownload(String),
     DownloadEvent(String, Event),
@@ -159,7 +175,8 @@ pub enum Message {
 impl App {
     pub fn new() -> (Self, Task<Message>) {
         let settings = load_settings();
-        let app = App {
+        #[allow(unused_mut)]
+        let mut app = App {
             screen: Screen::Workspace,
             settings,
             devices: Vec::new(),
@@ -170,12 +187,44 @@ impl App {
             ping_status: None,
             is_transcribing: false,
             transcribe_progress: None,
+            transcribe_result: None,
             downloading: HashMap::new(),
             log_content: text_editor::Content::new(),
             detected_language: None,
             transcribe_cancel: None,
             download_cancel: HashMap::new(),
         };
+
+        // Deterministic debug-only inspection of the real result card: no model,
+        // transcription, update check or settings write is needed.
+        #[cfg(debug_assertions)]
+        if std::env::args().any(|arg| arg == "--ui-result-preview") {
+            app.settings.input_path = "Synthetic preview — no transcription performed".to_string();
+            // Retry can exercise the normal missing-model prerequisite without
+            // ever starting transcription, even on a machine with models.
+            app.settings.selected_model = None;
+            app.transcribe_result = Some(
+                if std::env::args().any(|arg| arg == "--ui-preview-failed") {
+                    TranscribeResult::Failed("Synthetic preview: the media file could not be decoded. No transcription was performed.".to_string())
+                } else if std::env::args().any(|arg| arg == "--ui-preview-cancelled") {
+                    TranscribeResult::Cancelled
+                } else {
+                    TranscribeResult::Completed {
+                        jobs: 1,
+                        dry_run: std::env::args().any(|arg| arg == "--ui-preview-dry-run"),
+                        outputs: if std::env::args().any(|arg| arg == "--ui-preview-empty") {
+                            Vec::new()
+                        } else {
+                            vec![
+                                "/tmp/subtly-synthetic-preview/interview.srt".to_string(),
+                                "/tmp/subtly-synthetic-preview/interview.vtt".to_string(),
+                            ]
+                        },
+                    }
+                },
+            );
+            return (app, Task::none());
+        }
 
         let init = Task::batch([
             Task::done(Message::Loaded),
@@ -425,18 +474,56 @@ impl App {
                 self.handle_transcribe_event(event);
                 Task::none()
             }
-            Message::TranscribeFinished(result) => {
+            Message::TranscribeFinished {
+                outcome: result,
+                dry_run,
+            } => {
                 self.is_transcribing = false;
                 self.transcribe_cancel = None;
                 self.transcribe_progress = None;
                 match result {
                     Ok(outcome) => {
-                        self.add_log(format!("Completed {} job(s).", outcome.jobs));
-                        for o in outcome.outputs {
-                            self.add_log(format!("Wrote: {o}"));
+                        self.add_log(format!(
+                            "{} {} job(s).",
+                            if dry_run {
+                                "Dry run completed:"
+                            } else {
+                                "Completed"
+                            },
+                            outcome.jobs
+                        ));
+                        for o in &outcome.outputs {
+                            self.add_log(format!(
+                                "{}: {o}",
+                                if dry_run { "Planned" } else { "Wrote" }
+                            ));
                         }
+                        self.transcribe_result = Some(TranscribeResult::Completed {
+                            jobs: outcome.jobs,
+                            outputs: outcome.outputs,
+                            dry_run,
+                        });
                     }
-                    Err(e) => self.add_log(format!("Transcription failed: {e}")),
+                    Err(e) => {
+                        self.transcribe_result = Some(if e.to_lowercase().contains("cancelled") {
+                            TranscribeResult::Cancelled
+                        } else {
+                            TranscribeResult::Failed(e.clone())
+                        });
+                        self.add_log(format!("Transcription failed: {e}"));
+                    }
+                }
+                Task::none()
+            }
+            Message::OpenOutputFolder(path) => {
+                #[cfg(target_os = "macos")]
+                let result = std::process::Command::new("open").arg(&path).spawn();
+                #[cfg(target_os = "windows")]
+                let result = std::process::Command::new("explorer").arg(&path).spawn();
+                #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+                let result = std::process::Command::new("xdg-open").arg(&path).spawn();
+                if let Err(error) = result {
+                    self.add_log(format!("Could not open output folder: {error}"));
                 }
                 Task::none()
             }
@@ -847,6 +934,7 @@ impl App {
             }
         };
         self.is_transcribing = true;
+        self.transcribe_result = None;
         self.detected_language = None;
         self.transcribe_progress = Some(TranscribeProgress {
             progress: 0,
@@ -862,6 +950,7 @@ impl App {
         self.transcribe_cancel = Some(cancel_tx);
         let event_stream = receiver_stream(rx).map(Message::TranscribeEvent);
 
+        let dry_run = params.dry_run.unwrap_or(false);
         let work = async move {
             transcribe(params, tx, cancel_rx)
                 .await
@@ -870,7 +959,10 @@ impl App {
 
         Task::batch([
             event_stream,
-            Task::perform(work, Message::TranscribeFinished),
+            Task::perform(work, move |outcome| Message::TranscribeFinished {
+                outcome,
+                dry_run,
+            }),
         ])
     }
 
