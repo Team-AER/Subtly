@@ -1234,3 +1234,80 @@ fn truncate(s: &str, n: usize) -> String {
         format!("{}…", s.chars().take(n).collect::<String>())
     }
 }
+
+#[cfg(test)]
+mod presentation_tests {
+    use super::*;
+    fn app() -> App {
+        let (mut app, _) = App::new();
+        app.settings = Settings::default();
+        app.system_reduced_motion = false;
+        app
+    }
+    fn preview(text: &str) -> crate::subtitle_preview::Preview {
+        crate::subtitle_preview::Preview {
+            path: "synthetic-test.srt".into(),
+            cues: vec![crate::subtitle_preview::Cue {
+                timecode: "00:00:01.000 --> 00:00:02.000".into(),
+                text: text.into(),
+            }],
+        }
+    }
+    #[test]
+    fn old_result_cannot_replace_current_caption_deck() {
+        let mut app = app();
+        app.preview_request = 2;
+        let _ = app.update(Message::SubtitlePreviewReady(
+            2,
+            Some(preview("Current result")),
+        ));
+        let _ = app.update(Message::SubtitlePreviewReady(
+            1,
+            Some(preview("Old result")),
+        ));
+        assert_eq!(
+            app.subtitle_preview.as_ref().unwrap().cues[0].text,
+            "Current result"
+        );
+    }
+    #[test]
+    fn reduction_settles_active_typesetting_and_future_motion_can_restore() {
+        let mut app = app();
+        let _ = app.update(Message::SubtitlePreviewReady(
+            0,
+            Some(preview("Current result")),
+        ));
+        assert_eq!(app.result_reveal, 0.0);
+        assert!(app.reveal_started.is_some());
+        app.settings.reduce_motion = true;
+        let _ = app.update(Message::MotionTick(std::time::Instant::now()));
+        assert_eq!(app.result_reveal, 1.0);
+        assert!(app.reveal_started.is_none());
+        assert_eq!(
+            app.subtitle_preview.as_ref().unwrap().cues[0].text,
+            "Current result"
+        );
+        app.settings.reduce_motion = false;
+        app.system_reduced_motion = false;
+        let _ = app.update(Message::SubtitlePreviewReady(
+            0,
+            Some(preview("Next result")),
+        ));
+        assert_eq!(app.result_reveal, 0.0);
+        assert!(app.reveal_started.is_some());
+    }
+    #[test]
+    fn live_excerpt_keeps_only_the_latest_actual_segments() {
+        let mut app = app();
+        for i in 0..5 {
+            app.handle_transcribe_event(Event::Segment(subtly_core::events::SegmentEvent {
+                start_ms: i * 1000,
+                end_ms: i * 1000 + 750,
+                text: format!("Actual event {i}"),
+            }));
+        }
+        assert_eq!(app.live_cues.len(), 3);
+        assert_eq!(app.live_cues[0].text, "Actual event 2");
+        assert_eq!(app.live_cues[2].timecode, "00:00:04.000 --> 00:00:04.750");
+    }
+}
