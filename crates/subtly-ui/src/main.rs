@@ -3,7 +3,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app;
+mod motion;
 mod screens;
+mod subtitle_preview;
 mod theme;
 mod updater;
 mod widgets;

@@ -31,12 +31,25 @@ pub fn view<'a>(app: &'a App) -> Element<'a, Message> {
             .color(t::TEXT_FAINT)
             .into()
     } else {
-        text(s.input_path.clone()).size(13).color(t::TEXT).into()
+        column![
+            text(
+                std::path::Path::new(&s.input_path)
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or(&s.input_path)
+                    .to_string()
+            )
+            .size(16)
+            .color(t::TEXT),
+            text(s.input_path.clone()).size(11).color(t::TEXT_MUTED),
+        ]
+        .spacing(4)
+        .into()
     };
 
     let input_block = section(
-        "Input",
-        "Pick a media file or a folder to batch-transcribe.",
+        "01  Source media",
+        "One file, or a folder for a batch.",
         column![
             pickers,
             container(input_display)
@@ -56,8 +69,8 @@ pub fn view<'a>(app: &'a App) -> Element<'a, Message> {
         output_input = output_input.on_input(Message::SetOutputDir);
     }
     let output_block = section(
-        "Output",
-        "Optional. Leave blank to write next to the input file.",
+        "02  Subtitle delivery",
+        "Save beside the source, or choose a folder.",
         column![
             output_input,
             text("Export formats").size(13).color(t::TEXT),
@@ -169,13 +182,43 @@ pub fn view<'a>(app: &'a App) -> Element<'a, Message> {
         action_col.into()
     };
 
-    let mut content = column![input_block, output_block, context_chips,]
-        .spacing(20)
-        .max_width(820.0);
+    let heading = column![
+        text("SUBTITLE CRAFT BENCH").size(11).color(t::ACCENT),
+        text("Words, in time.").size(30).color(t::TEXT),
+    ]
+    .spacing(6);
+    let source_and_delivery: Element<'_, Message> = if app.workspace_width >= 1100.0 {
+        row![
+            container(input_block).width(Length::FillPortion(1)),
+            container(output_block).width(Length::FillPortion(1))
+        ]
+        .spacing(18)
+        .into()
+    } else {
+        column![input_block, output_block].spacing(16).into()
+    };
+    let mut content = column![heading, source_and_delivery, action_area, context_chips]
+        .spacing(18)
+        .max_width(1080.0);
     if let Some(result) = &app.transcribe_result {
         content = content.push(result_card(result));
     }
-    content = content.push(action_area).push(tooltip(
+    if app.is_transcribing && !app.live_cues.is_empty() {
+        content = content.push(cue_deck(
+            "Transcription excerpt",
+            "Before final subtitle layout",
+            &app.live_cues,
+            1.0,
+        ));
+    } else if let Some(preview) = &app.subtitle_preview {
+        content = content.push(cue_deck(
+            "Saved subtitle excerpt",
+            &preview.path,
+            &preview.cues,
+            app.result_reveal,
+        ));
+    }
+    content = content.push(tooltip(
         button(text(if app.workspace_refinements_expanded {
             "▾ Vocabulary & replacements"
         } else {
@@ -196,6 +239,52 @@ pub fn view<'a>(app: &'a App) -> Element<'a, Message> {
         content = content.push(prompt_block).push(replacements_block);
     }
     content.into()
+}
+
+fn cue_deck<'a>(
+    title: &'a str,
+    path: &'a str,
+    cue_list: &'a [crate::subtitle_preview::Cue],
+    reveal: f32,
+) -> Element<'a, Message> {
+    let mut cues = Column::new().spacing(14);
+    for (index, cue) in cue_list.iter().enumerate() {
+        cues = cues.push(
+            row![
+                text(format!("{:02}", index + 1))
+                    .size(12)
+                    .color(t::ACCENT)
+                    .width(Length::Fixed(28.0)),
+                column![
+                    text(&cue.timecode)
+                        .size(11)
+                        .font(iced::Font::MONOSPACE)
+                        .color(t::TEXT_FAINT),
+                    text(&cue.text).size(18).color(t::TEXT)
+                ]
+                .spacing(6),
+            ]
+            .spacing(12),
+        );
+    }
+    let header = column![
+        text("ON THE PAGE").size(11).color(t::ACCENT),
+        text(title).size(19),
+        text(path).size(11).color(t::TEXT_MUTED)
+    ]
+    .spacing(5);
+    let height = (cue_list.len() as f32 * 85.0 + 8.0) * reveal;
+    container(
+        column![
+            header,
+            container(cues).height(Length::Fixed(height)).clip(true)
+        ]
+        .spacing(20),
+    )
+    .padding(22)
+    .style(t::surface)
+    .width(Length::Fill)
+    .into()
 }
 
 fn prompt_input<'a>(s: &subtly_core::settings::Settings, busy: bool) -> Element<'a, Message> {

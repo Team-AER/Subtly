@@ -87,6 +87,13 @@ pub struct App {
     pub ping_status: Option<PingResult>,
     pub is_transcribing: bool,
     pub workspace_refinements_expanded: bool,
+    pub subtitle_preview: Option<crate::subtitle_preview::Preview>,
+    pub live_cues: Vec<crate::subtitle_preview::Cue>,
+    pub result_reveal: f32,
+    pub workspace_width: f32,
+    system_reduced_motion: bool,
+    reveal_started: Option<std::time::Instant>,
+    preview_request: u64,
     pub transcribe_progress: Option<TranscribeProgress>,
     pub transcribe_result: Option<TranscribeResult>,
     pub downloading: HashMap<String, DownloadInfo>,
@@ -102,6 +109,11 @@ pub struct App {
 #[allow(dead_code)]
 pub enum Message {
     Loaded,
+    MotionTick(std::time::Instant),
+    MotionPreferenceTick,
+    WindowResized(f32),
+    ToggleReduceMotion(bool),
+    SubtitlePreviewReady(u64, Option<crate::subtitle_preview::Preview>),
     Tick,
     Ping(PingResult),
     DevicesLoaded(Vec<DeviceInfo>),
@@ -190,6 +202,13 @@ impl App {
             ping_status: None,
             is_transcribing: false,
             workspace_refinements_expanded: false,
+            subtitle_preview: None,
+            live_cues: Vec::new(),
+            result_reveal: 1.0,
+            workspace_width: 1100.0,
+            system_reduced_motion: crate::motion::system_reduced(),
+            reveal_started: None,
+            preview_request: 0,
             transcribe_progress: None,
             transcribe_result: None,
             downloading: HashMap::new(),
@@ -231,11 +250,13 @@ impl App {
             if std::env::args().any(|arg| arg == "--ui-preview-idle") {
                 app.transcribe_result = None;
             }
-            return (app, Task::none());
+            let preview = app.load_subtitle_preview();
+            return (app, Task::batch([preview, Self::measure_window()]));
         }
 
         let init = Task::batch([
             Task::done(Message::Loaded),
+            Self::measure_window(),
             Task::perform(async { ping() }, Message::Ping),
             Task::perform(async { list_devices() }, Message::DevicesLoaded),
         ]);
@@ -270,7 +291,15 @@ impl App {
         } else {
             Subscription::none()
         };
+        let motion = if self.reveal_started.is_some() {
+            iced::time::every(Duration::from_millis(16)).map(Message::MotionTick)
+        } else {
+            Subscription::none()
+        };
         Subscription::batch([
+            motion,
+            iced::time::every(Duration::from_millis(250)).map(|_| Message::MotionPreferenceTick),
+            iced::window::resize_events().map(|(_, size)| Message::WindowResized(size.width)),
             iced::time::every(Duration::from_secs(10)).map(|_| Message::Tick),
             keys,
         ])
@@ -279,6 +308,50 @@ impl App {
     pub fn update(&mut self, message: Message) -> Task<Message> {
         match message {
             Message::Loaded => Task::none(),
+            Message::WindowResized(width) => {
+                self.workspace_width = width;
+                Task::none()
+            }
+            Message::MotionPreferenceTick => {
+                self.system_reduced_motion = crate::motion::system_reduced();
+                if self.reduced_motion() {
+                    self.result_reveal = 1.0;
+                    self.reveal_started = None;
+                }
+                Task::none()
+            }
+            Message::MotionTick(now) => {
+                self.system_reduced_motion = crate::motion::system_reduced();
+                if self.reduced_motion() {
+                    self.result_reveal = 1.0;
+                    self.reveal_started = None;
+                } else if let Some(start) = self.reveal_started {
+                    let fraction = now.saturating_duration_since(start).as_secs_f32() / 0.48;
+                    self.result_reveal = 1.0 - (1.0 - fraction.clamp(0.0, 1.0)).powi(3);
+                    if fraction >= 1.0 {
+                        self.reveal_started = None;
+                    }
+                }
+                Task::none()
+            }
+            Message::ToggleReduceMotion(reduced) => {
+                self.settings.reduce_motion = reduced;
+                if self.reduced_motion() {
+                    self.result_reveal = 1.0;
+                    self.reveal_started = None;
+                }
+                self.persist()
+            }
+            Message::SubtitlePreviewReady(request, preview) => {
+                if request == self.preview_request {
+                    self.subtitle_preview = preview;
+                    if self.subtitle_preview.is_some() && !self.reduced_motion() {
+                        self.result_reveal = 0.0;
+                        self.reveal_started = Some(std::time::Instant::now());
+                    }
+                }
+                Task::none()
+            }
             Message::Tick => Task::perform(async { ping() }, Message::Ping),
             Message::Ping(p) => {
                 self.ping_status = Some(p);
@@ -525,7 +598,14 @@ impl App {
                 self.persist()
             }
 
-            Message::StartTranscribe => self.start_transcribe(),
+            Message::StartTranscribe => {
+                self.preview_request = self.preview_request.wrapping_add(1);
+                self.subtitle_preview = None;
+                self.live_cues.clear();
+                self.reveal_started = None;
+                self.result_reveal = 1.0;
+                self.start_transcribe()
+            }
             Message::TranscribeEvent(event) => {
                 self.handle_transcribe_event(event);
                 Task::none()
@@ -569,7 +649,7 @@ impl App {
                         self.add_log(format!("Transcription failed: {e}"));
                     }
                 }
-                Task::none()
+                self.load_subtitle_preview()
             }
             Message::OpenOutputFolder(path) => {
                 #[cfg(target_os = "macos")]
@@ -696,6 +776,40 @@ impl App {
                 Task::none()
             }
         }
+    }
+
+    fn measure_window() -> Task<Message> {
+        iced::window::get_latest().and_then(|id| {
+            iced::window::get_size(id).map(|size| Message::WindowResized(size.width))
+        })
+    }
+
+    fn reduced_motion(&self) -> bool {
+        self.settings.reduce_motion || self.system_reduced_motion
+    }
+
+    fn load_subtitle_preview(&mut self) -> Task<Message> {
+        self.preview_request = self.preview_request.wrapping_add(1);
+        self.subtitle_preview = None;
+        let request = self.preview_request;
+        let Some(TranscribeResult::Completed {
+            outputs,
+            dry_run: false,
+            ..
+        }) = &self.transcribe_result
+        else {
+            return Task::none();
+        };
+        let outputs = outputs.clone();
+        Task::perform(
+            async move {
+                tokio::task::spawn_blocking(move || crate::subtitle_preview::read(&outputs, false))
+                    .await
+                    .ok()
+                    .flatten()
+            },
+            move |preview| Message::SubtitlePreviewReady(request, preview),
+        )
     }
 
     fn focus_workspace_output(&self) -> Task<Message> {
@@ -966,6 +1080,17 @@ impl App {
                 }
             }
             Event::Segment(s) => {
+                self.live_cues.push(crate::subtitle_preview::Cue {
+                    timecode: format!(
+                        "{} --> {}",
+                        crate::subtitle_preview::timecode(s.start_ms),
+                        crate::subtitle_preview::timecode(s.end_ms)
+                    ),
+                    text: s.text.chars().take(300).collect(),
+                });
+                if self.live_cues.len() > 3 {
+                    self.live_cues.remove(0);
+                }
                 self.add_log(format!("[{:>7.2}s] {}", s.start_ms as f32 / 1000.0, s.text));
             }
             Event::DetectedLanguage(d) => {

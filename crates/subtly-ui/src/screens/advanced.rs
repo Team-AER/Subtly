@@ -191,10 +191,24 @@ pub fn view<'a>(app: &'a App) -> Element<'a, Message> {
         .into(),
     );
 
-    column![runtime, pipeline, cue_layout, vad]
-        .spacing(20)
-        .max_width(820.0)
-        .into()
+    column![
+        group(
+            "Accessibility",
+            "System motion preferences are also respected on macOS and Windows.",
+            checkbox("Reduce workspace motion", s.reduce_motion)
+                .on_toggle(Message::ToggleReduceMotion)
+                .size(14)
+                .text_size(12)
+                .into()
+        ),
+        runtime,
+        pipeline,
+        cue_layout,
+        vad
+    ]
+    .spacing(20)
+    .max_width(820.0)
+    .into()
 }
 
 fn group<'a>(title: &str, hint: &str, body: Element<'a, Message>) -> Element<'a, Message> {
