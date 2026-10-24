@@ -1,7 +1,8 @@
 //! Workspace screen — the primary "transcribe a file" surface.
 
 use iced::widget::{
-    button, checkbox, column, container, progress_bar, row, text, text_input, Column, Row, Space,
+    button, checkbox, column, container, progress_bar, row, text, text_input, tooltip, Column, Row,
+    Space,
 };
 use iced::{Alignment, Element, Length};
 
@@ -48,6 +49,7 @@ pub fn view<'a>(app: &'a App) -> Element<'a, Message> {
     );
 
     let mut output_input = text_input("Defaults to input file/folder", &s.output_dir)
+        .id("workspace-output")
         .padding(10)
         .style(t::text_input_style);
     if !busy {
@@ -173,7 +175,7 @@ pub fn view<'a>(app: &'a App) -> Element<'a, Message> {
     if let Some(result) = &app.transcribe_result {
         content = content.push(result_card(result));
     }
-    content = content.push(action_area).push(
+    content = content.push(action_area).push(tooltip(
         button(text(if app.workspace_refinements_expanded {
             "▾ Vocabulary & replacements"
         } else {
@@ -182,7 +184,14 @@ pub fn view<'a>(app: &'a App) -> Element<'a, Message> {
         .on_press(Message::ToggleWorkspaceRefinements)
         .padding([10, 14])
         .style(t::secondary_button),
-    );
+        text(if cfg!(target_os = "macos") {
+            "⌘⇧R · Esc closes"
+        } else {
+            "Ctrl+Shift+R · Esc closes"
+        })
+        .size(12),
+        tooltip::Position::Top,
+    ));
     if app.workspace_refinements_expanded {
         content = content.push(prompt_block).push(replacements_block);
     }
@@ -194,6 +203,7 @@ fn prompt_input<'a>(s: &subtly_core::settings::Settings, busy: bool) -> Element<
         "e.g. Areca palm, Subtly, Iced. Names and jargon Whisper might miss.",
         &s.initial_prompt,
     )
+    .id("workspace-vocabulary")
     .padding(10)
     .style(t::text_input_style);
     if !busy {
