@@ -122,6 +122,19 @@ mod monitoring_tests {
     use std::time::{Duration, Instant};
 
     #[test]
+    #[ignore = "Sends a synthetic diagnostic to the configured GlitchTip project"]
+    fn portal_delivery() {
+        assert!(std::env::var("GLITCHTIP_DSN").is_ok());
+        let guard = init_crash_reporting().expect("Configured SDK should start");
+        sentry::configure_scope(|scope| {
+            scope.set_tag("verification", "application-integration-test")
+        });
+        let caught = std::panic::catch_unwind(|| panic!("PRIVATE_SENTINEL"));
+        assert!(caught.is_err());
+        drop(guard);
+    }
+
+    #[test]
     fn configured_panic_is_delivered_without_private_text() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         listener.set_nonblocking(true).unwrap();
