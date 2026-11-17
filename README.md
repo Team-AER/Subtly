@@ -142,4 +142,6 @@ Subtly v2 continues the earlier Subtly application, replacing its Electron and e
 
 ### GlitchTip crash reporting
 
-Build with `--features crash-reporting` and set `GLITCHTIP_DSN` or `SENTRY_DSN`, plus `SENTRY_ENVIRONMENT`, when launching. An empty DSN disables reporting. The client guard stays alive for the UI lifetime and flushes on normal shutdown. Sessions and tracing are disabled; request context, users, breadcrumbs, extras and exception text are removed before sending.
+Build with `--features crash-reporting` and set `GLITCHTIP_DSN` or `SENTRY_DSN`, plus `SENTRY_ENVIRONMENT`, when launching. An empty DSN disables reporting. Official release builds embed the public DSN from the repository build variable; setting an empty launch DSN disables that default. The client guard stays alive for the UI lifetime and flushes on normal shutdown. Sessions and tracing are disabled; request context, users, breadcrumbs, extras and exception text are removed before sending.
+
+Release builds retain separate debug symbols and native image identifiers. CI uploads symbol artifacts alongside packages; upload those symbols to the matching GlitchTip project to resolve release stack addresses.

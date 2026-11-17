@@ -29,7 +29,7 @@ tempfile = "3"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
 futures = "0.3"
 once_cell = "1"
-sentry = { version = "0.34", default-features = false, features = ["backtrace", "panic", "rustls", "reqwest"] }
+sentry = { version = "0.34", default-features = false, features = ["backtrace", "panic", "rustls", "reqwest", "debug-images"] }
 single-instance = "0.3"
 uuid = { version = "1", features = ["v4"] }
 whisper-rs = { version = "0.16", default-features = false }
@@ -40,7 +40,9 @@ ebur128 = "0.1"
 [profile.release]
 lto = "thin"
 codegen-units = 1
-strip = "symbols"
+debug = 1
+split-debuginfo = "packed"
+strip = "debuginfo"
 
 # cargo-dist configuration. Run `cargo dist init` and `cargo dist build` to
 # produce signed releases that axoupdater can consume.
