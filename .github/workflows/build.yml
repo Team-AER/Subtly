@@ -10,6 +10,7 @@ env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
   RUST_BACKTRACE: 1
+  GLITCHTIP_DSN: ${{ vars.GLITCHTIP_DSN }}
 
 jobs:
   build:
@@ -230,7 +231,7 @@ jobs:
         run: cargo run -p xtask --release -- download-assets
 
       - name: Build subtly-ui (release)
-        run: cargo build --release -p subtly-ui --target ${{ matrix.target }}
+        run: cargo build --release -p subtly-ui --features crash-reporting --target ${{ matrix.target }}
 
       - name: Validate macOS Signing & Notarization Secrets
         if: matrix.os == 'macos-26'

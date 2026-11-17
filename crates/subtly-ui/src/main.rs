@@ -47,7 +47,7 @@ fn init_tracing() {
 fn init_crash_reporting() -> Option<sentry::ClientInitGuard> {
     let dsn = std::env::var("GLITCHTIP_DSN")
         .or_else(|_| std::env::var("SENTRY_DSN"))
-        .unwrap_or_default();
+        .unwrap_or_else(|_| option_env!("GLITCHTIP_DSN").unwrap_or_default().to_owned());
     if dsn.trim().is_empty() {
         return None;
     }
