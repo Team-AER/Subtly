@@ -14,7 +14,7 @@ use app::App;
 
 fn main() -> iced::Result {
     init_tracing();
-    init_crash_reporting();
+    let _crash_reporting = init_crash_reporting();
     enforce_single_instance();
     if !cfg!(debug_assertions) || !std::env::args().any(|arg| arg == "--ui-result-preview") {
         spawn_update_check();
@@ -44,21 +44,34 @@ fn init_tracing() {
 }
 
 #[cfg(feature = "crash-reporting")]
-fn init_crash_reporting() {
-    use std::sync::OnceLock;
-    static GUARD: OnceLock<sentry::ClientInitGuard> = OnceLock::new();
-    if let Ok(dsn) = std::env::var("SENTRY_DSN") {
-        if !dsn.is_empty() {
-            let _ = GUARD.set(sentry::init((
-                dsn,
-                sentry::ClientOptions {
-                    release: sentry::release_name!(),
-                    traces_sample_rate: 0.2,
-                    ..Default::default()
-                },
-            )));
-        }
+fn init_crash_reporting() -> Option<sentry::ClientInitGuard> {
+    let dsn = std::env::var("GLITCHTIP_DSN")
+        .or_else(|_| std::env::var("SENTRY_DSN"))
+        .unwrap_or_default();
+    if dsn.trim().is_empty() {
+        return None;
     }
+    Some(sentry::init((
+        dsn,
+        sentry::ClientOptions {
+            release: sentry::release_name!(),
+            environment: Some(std::env::var("SENTRY_ENVIRONMENT").unwrap_or_else(|_| "production".into()).into()),
+            send_default_pii: false,
+            auto_session_tracking: false,
+            traces_sample_rate: 0.0,
+            before_send: Some(std::sync::Arc::new(|mut event| {
+                event.request = None;
+                event.user = None;
+                event.breadcrumbs.values.clear();
+                event.extra.clear();
+                for exception in event.exception.values.iter_mut() {
+                    exception.value = Some(exception.ty.clone());
+                }
+                Some(event)
+            })),
+            ..Default::default()
+        },
+    )))
 }
 
 #[cfg(not(feature = "crash-reporting"))]
