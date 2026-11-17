@@ -19,7 +19,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14
+          - os: macos-26
             arch: arm64
             target: aarch64-apple-darwin
             artifact-glob: |
@@ -55,7 +55,7 @@ jobs:
             libvulkan-dev
 
       - name: Install system dependencies (macOS)
-        if: matrix.os == 'macos-14'
+        if: matrix.os == 'macos-26'
         run: |
           brew install cmake pkg-config
 
@@ -233,7 +233,7 @@ jobs:
         run: cargo build --release -p subtly-ui --target ${{ matrix.target }}
 
       - name: Validate macOS Signing & Notarization Secrets
-        if: matrix.os == 'macos-14'
+        if: matrix.os == 'macos-26'
         env:
           # CSC_LINK / CSC_KEY_PASSWORD follow the electron-builder /
           # cargo-packager convention: base64-encoded .p12 + its password.
@@ -267,7 +267,7 @@ jobs:
           fi
 
       - name: Import macOS signing certificate
-        if: matrix.os == 'macos-14'
+        if: matrix.os == 'macos-26'
         env:
           # CSC_LINK is either a base64-encoded .p12 (most common for CI),
           # an https:// URL, a file:// URL, or a local filesystem path.
@@ -340,11 +340,11 @@ jobs:
           fi
 
       - name: Package application (Linux/Windows)
-        if: matrix.os != 'macos-14'
+        if: matrix.os != 'macos-26'
         run: cargo packager --release --target ${{ matrix.target }}
 
       - name: Package .app and notarize (macOS)
-        if: matrix.os == 'macos-14'
+        if: matrix.os == 'macos-26'
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
@@ -418,7 +418,7 @@ jobs:
           fi
 
       - name: Package .dmg and notarize (macOS)
-        if: matrix.os == 'macos-14'
+        if: matrix.os == 'macos-26'
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
