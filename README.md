@@ -139,3 +139,7 @@ Both features are disabled by default. cargo-dist metadata exists, but the check
 | `docs/` | Maintainer signing and certificate guides |
 
 Subtly v2 continues the earlier Subtly application, replacing its Electron and external-tool pipeline with Rust. Its accuracy-first default acknowledges Aiko's model-selection approach; Subtly is a separate application. Thanks to OpenAI Whisper, whisper.cpp, whisper-rs, Iced, Symphonia, Rubato, EBU R128 and Silero VAD and their contributors. The project is [MIT licensed](LICENSE); dependency and model licenses remain their own.
+
+### GlitchTip crash reporting
+
+Build with `--features crash-reporting` and set `GLITCHTIP_DSN` or `SENTRY_DSN`, plus `SENTRY_ENVIRONMENT`, when launching. An empty DSN disables reporting. The client guard stays alive for the UI lifetime and flushes on normal shutdown. Sessions and tracing are disabled; request context, users, breadcrumbs, extras and exception text are removed before sending.
